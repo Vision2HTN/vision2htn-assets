@@ -1,0 +1,129 @@
+=== HDDL DOMAIN FILE TEMPLATE ===
+
+An HDDL domain file extends a PDDL domain with hierarchical task network constructs.
+The general structure is shown below, followed by notes on each section.
+
+------------------------------------------------------------------------------
+
+(define (domain <domain_name>)
+
+  (:requirements :hierarchy <...other requirements from the PDDL domain, e.g. :typing :negative-preconditions :equality>)
+
+  (:types
+    ; Copy all type declarations from the PDDL domain unchanged.
+    <type_1> <type_2> ... - <parent_type>
+    ...
+  )
+
+  (:constants
+    ; Copy all constant declarations from the PDDL domain unchanged (if any).
+    <const_1> <const_2> ... - <type>
+    ...
+  )
+
+  (:predicates
+    ; Copy all predicate declarations from the PDDL domain unchanged.
+    ; If new predicates are needed to support HTN preconditions/effects, add them here.
+    (<predicate_name> ?<param> - <type> ...)
+    ...
+  )
+
+  ; -----------------------------------------------------------------------
+  ; TASKS
+  ; Each task declares an abstract goal that methods will decompose.
+  ; Root tasks (entry points for the HTN planner) should have 'root' in
+  ; their name OR be marked with a comment ; ROOT TASK.
+  ; -----------------------------------------------------------------------
+
+  (:task <task_name>                          ; ROOT TASK (if applicable)
+    :parameters (?<param1> - <type1>
+                 ?<param2> - <type2> ...)
+  )
+
+  (:task <subtask_name>
+    :parameters (?<param1> - <type1> ...)
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS
+  ; Each method provides one decomposition strategy for a task.
+  ; :parameters must include ALL variables used in :task and :ordered-subtasks
+  ; (or :subtasks + :ordering), not just the task parameters.
+  ; -----------------------------------------------------------------------
+
+  (:method <method_name>
+    :parameters (?<param1> - <type1>
+                 ?<param2> - <type2>
+                 ?<param3> - <type3> ...)   ; include extra params needed by subtasks
+    :task (<task_name> ?<param1> ?<param2>)
+    :precondition (and
+      (<precondition_predicate> ?<param1> ...)
+      ...
+    )
+    :ordered-subtasks (and
+      (<subtask_or_action_1> ?<param1> ...)
+      (<subtask_or_action_2> ?<param2> ...)
+      ...
+    )
+  )
+
+  ; Alternative: use :subtasks with explicit :ordering for partial-order methods
+  (:method <method_name_partial_order>
+    :parameters (?<param1> - <type1>
+                 ?<param2> - <type2> ...)
+    :task (<task_name> ?<param1>)
+    :subtasks (and
+      (t1 (<subtask_1> ?<param1>))
+      (t2 (<subtask_2> ?<param2>))
+    )
+    :ordering (and (< t1 t2))
+  )
+
+  ; -----------------------------------------------------------------------
+  ; ACTIONS
+  ; Copy all action definitions from the PDDL domain unchanged.
+  ; -----------------------------------------------------------------------
+
+  (:action <action_name>
+    :parameters (?<param1> - <type1> ...)
+    :precondition (and ...)
+    :effect (and ...)
+  )
+
+)
+
+------------------------------------------------------------------------------
+=== NOTES ===
+
+1. DEFINE / DOMAIN NAME
+   Always open with: (define (domain <domain_name>))
+   Use the same domain name as the PDDL source file.
+
+2. REQUIREMENTS
+   Always include :hierarchy.
+   Preserve all other requirements already present in the PDDL domain
+   (e.g. :typing, :negative-preconditions, :equality, :action-costs).
+
+3. TYPES / CONSTANTS / PREDICATES / ACTIONS
+   Copy these sections verbatim from the PDDL domain.
+   New predicates may be added inside (:predicates ...) when the existing
+   vocabulary is insufficient to express HTN preconditions or effects.
+
+4. TASKS
+   Format: (:task <name> :parameters (?p - type ...))
+   - Root tasks are the top-level goals passed to the HTN planner.
+     Mark them with the word 'root' in the task name (e.g. root_deliver)
+     or add a comment ; ROOT TASK immediately after the opening parenthesis.
+   - Non-root (intermediate) tasks are decomposed further by methods.
+
+5. METHODS
+   Format: (:method <name> :parameters (...) :task (...) :ordered-subtasks (and ...))
+   - :parameters must list every variable referenced anywhere in the method,
+     including variables that appear only in subtasks but not in :task.
+   - Use :ordered-subtasks (and ...) when subtasks execute in strict sequence.
+   - Use :subtasks (and ...) + :ordering (and (< t_i t_j) ...) for
+     partial-order decompositions where some subtasks may run in parallel.
+   - Subtasks may be primitive actions (from :action) or abstract tasks
+     (from :task); both are referenced the same way: (<name> ?p1 ?p2 ...).
+   - Provide multiple methods for the same task to encode alternative
+     strategies (e.g. one method per recipe, one method per rescue strategy).
