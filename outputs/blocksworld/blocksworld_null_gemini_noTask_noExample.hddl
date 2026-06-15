@@ -1,0 +1,265 @@
+(define (domain Blocks4)
+
+  (:requirements :hierarchy :strips :typing :equality :negative-preconditions)
+
+  (:types 
+    block
+  )
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  ; -----------------------------------------------------------------------
+  ; TASKS
+  ; -----------------------------------------------------------------------
+
+  ; ROOT TASK - Strongly supported by standard blocksworld goals.
+  ; Represents the general objective of stacking a specific block on another.
+  (:task achieve-on                          
+    :parameters (?b1 - block ?b2 - block)
+  )
+
+  ; ROOT TASK - Strongly supported.
+  ; Represents the general objective of moving a block to the table.
+  (:task achieve-on-table                    
+    :parameters (?b - block)
+  )
+
+  ; INTERMEDIATE TASK - Plausible generalization.
+  ; Ensures a block has no other blocks on top of it, a necessary prerequisite for picking it up or stacking onto it.
+  (:task make-clear
+    :parameters (?b - block)
+  )
+
+  ; INTERMEDIATE TASK - Plausible generalization.
+  ; Handles acquiring a block into the agent's hand from any location.
+  (:task get-block
+    :parameters (?b - block)
+  )
+
+  ; INTERMEDIATE TASK - Plausible generalization.
+  ; Ensures the robot gripper is empty, allowing it to perform unstack or pickup actions.
+  (:task empty-hand
+    :parameters ()
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS
+  ; -----------------------------------------------------------------------
+
+  ; Method for achieve-on when the goal is already satisfied.
+  (:method achieve-on-already
+    :parameters (?b1 - block ?b2 - block)
+    :task (achieve-on ?b1 ?b2)
+    :precondition (and
+      (on ?b1 ?b2)
+    )
+    :ordered-subtasks ()
+  )
+
+  ; Method for achieve-on when the blocks are not yet stacked.
+  ; Generalizes the sequence: clear destination, get target, stack.
+  (:method achieve-on-move
+    :parameters (?b1 - block ?b2 - block)
+    :task (achieve-on ?b1 ?b2)
+    :precondition (and
+      (not (on ?b1 ?b2))
+    )
+    :ordered-subtasks (and
+      (make-clear ?b2)
+      (get-block ?b1)
+      (Stack ?b1 ?b2)
+    )
+  )
+
+  ; Method for achieve-on-table when the block is already on the table.
+  (:method achieve-on-table-already
+    :parameters (?b - block)
+    :task (achieve-on-table ?b)
+    :precondition (and
+      (on-table ?b)
+    )
+    :ordered-subtasks ()
+  )
+
+  ; Method for achieve-on-table when the block is not on the table.
+  ; Generalizes the sequence: get block, put it down.
+  (:method achieve-on-table-move
+    :parameters (?b - block)
+    :task (achieve-on-table ?b)
+    :precondition (and
+      (not (on-table ?b))
+    )
+    :ordered-subtasks (and
+      (get-block ?b)
+      (Putdown ?b)
+    )
+  )
+
+  ; Base case for clearing a block: it is already clear.
+  (:method clear-already
+    :parameters (?b - block)
+    :task (make-clear ?b)
+    :precondition (and
+      (clear ?b)
+    )
+    :ordered-subtasks ()
+  )
+
+  ; Recursive case for clearing a block: another block is on top of it.
+  ; Generalizes the unstacking sequence to handle arbitrarily tall towers.
+  (:method clear-block
+    :parameters (?b - block ?top - block)
+    :task (make-clear ?b)
+    :precondition (and
+      (on ?top ?b)
+    )
+    :ordered-subtasks (and
+      (make-clear ?top)
+      (empty-hand)
+      (Unstack ?top ?b)
+      (Putdown ?top)
+    )
+  )
+
+  ; Method to get a block that is resting on the table.
+  (:method get-from-table
+    :parameters (?b - block)
+    :task (get-block ?b)
+    :precondition (and
+      (on-table ?b)
+    )
+    :ordered-subtasks (and
+      (make-clear ?b)
+      (empty-hand)
+      (Pickup ?b)
+    )
+  )
+
+  ; Method to get a block that is resting on another block.
+  (:method get-from-block
+    :parameters (?b - block ?under - block)
+    :task (get-block ?b)
+    :precondition (and
+      (on ?b ?under)
+    )
+    :ordered-subtasks (and
+      (make-clear ?b)
+      (empty-hand)
+      (Unstack ?b ?under)
+    )
+  )
+
+  ; Base case for empty-hand: hand is already empty.
+  (:method empty-hand-base
+    :parameters ()
+    :task (empty-hand)
+    :precondition (and
+      (hand-empty)
+    )
+    :ordered-subtasks ()
+  )
+
+  ; Corrective case for empty-hand: put down whatever is being held.
+  (:method empty-hand-holding
+    :parameters (?b - block)
+    :task (empty-hand)
+    :precondition (and
+      (holding ?b)
+    )
+    :ordered-subtasks (and
+      (Putdown ?b)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; ACTIONS (Copied unchanged from PDDL)
+  ; -----------------------------------------------------------------------
+
+  (:action Pickup
+    :parameters
+    (
+      ?b - block
+    )
+    :precondition
+    (and
+      (on-table ?b)
+      (clear ?b)
+      (hand-empty)
+    )
+    :effect
+    (and
+      (not (on-table ?b))
+      (not (clear ?b))
+      (not (hand-empty))
+      (holding ?b)
+    )
+  )
+
+  (:action Putdown
+    :parameters
+    (
+      ?b - block
+    )
+    :precondition
+    (and
+      (holding ?b)
+    )
+    :effect
+    (and
+      (not (holding ?b))
+      (hand-empty)
+      (on-table ?b)
+      (clear ?b)
+    )
+  )
+
+  (:action Unstack
+    :parameters
+    (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    (and
+      (on ?b1 ?b2)
+      (clear ?b1)
+      (hand-empty)
+    )
+    :effect
+    (and
+      (not (on ?b1 ?b2))
+      (not (clear ?b1))
+      (not (hand-empty))
+      (clear ?b2)
+      (holding ?b1)
+    )
+  )
+
+  (:action Stack
+    :parameters
+    (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    (and
+      (holding ?b1)
+      (clear ?b2)
+    )
+    :effect
+    (and
+      (not (holding ?b1))
+      (not (clear ?b2))
+      (hand-empty)
+      (on ?b1 ?b2)
+      (clear ?b1)
+    )
+  )
+
+)

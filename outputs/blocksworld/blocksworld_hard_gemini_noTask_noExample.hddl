@@ -1,0 +1,182 @@
+(define (domain Blocks4)
+
+  (:requirements :strips :typing :equality :hierarchy :negative-preconditions)
+
+  (:types block)
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  ; -----------------------------------------------------------------------
+  ; TASKS
+  ; -----------------------------------------------------------------------
+
+  (:task root_move_block                          ; ROOT TASK
+    :parameters (?b - block ?to - block)
+    ; Evidence: Strongly supported. In Demo 1, G is moved onto C. In Demo 2, F is moved onto H.
+    ; Generalization: Represents the universal domain goal of stacking one specific block on another.
+  )
+
+  (:task root_move_to_table                       ; ROOT TASK
+    :parameters (?b - block)
+    ; Evidence: Strongly supported. In Demo 1, D is moved to the table to access C.
+    ; Generalization: Represents the generic objective of relocating any block to the table.
+  )
+
+  (:task clear_block
+    :parameters (?b - block)
+    ; Evidence: Strongly supported. Unstacking D to get to C (Demo 1) shows the necessity of clearing targets.
+    ; Generalization: Recursively removes top blocks, ensuring any block deep in a stack can be cleared.
+  )
+
+  (:task do_move_cleared
+    :parameters (?b - block ?to - block)
+    ; Evidence: Plausible generalization inferred from domain structure. Stacking operations always happen once blocks are clear.
+    ; Generalization: Safe execution step that decides whether to Pickup or Unstack based on the state evaluated after clearing subtasks.
+  )
+
+  (:task do_move_to_table_cleared
+    :parameters (?b - block)
+    ; Evidence: Plausible generalization inferred from domain structure. Putdown operations happen once a block is clear and unstacked.
+    ; Generalization: Executes the unstack and putdown sequence safely evaluated at execution time.
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS
+  ; -----------------------------------------------------------------------
+
+  (:method m_root_move_block_already
+    :parameters (?b - block ?to - block)
+    :task (root_move_block ?b ?to)
+    :precondition (and (on ?b ?to))
+    :ordered-subtasks ()
+    ; Evidence: Plausible generalization; inferred base case where no operations are needed if the goal is already met.
+    ; Generalization: Avoids redundant actions if the block is already on the target.
+  )
+
+  (:method m_root_move_block
+    :parameters (?b - block ?to - block)
+    :task (root_move_block ?b ?to)
+    :precondition (and (not (= ?b ?to)) (not (on ?b ?to)))
+    :ordered-subtasks (and
+      (t1 (clear_block ?b))
+      (t2 (clear_block ?to))
+      (t3 (do_move_cleared ?b ?to))
+    )
+    ; Evidence: Strongly supported. General strategy observed in all block-to-block moves across both demonstrations.
+    ; Generalization: Clears both source and target blocks before attempting the move, making it robust to arbitrary towers and state changes.
+  )
+
+  (:method m_root_move_to_table_already
+    :parameters (?b - block)
+    :task (root_move_to_table ?b)
+    :precondition (and (on-table ?b))
+    :ordered-subtasks ()
+    ; Evidence: Plausible generalization; inferred base case.
+    ; Generalization: Returns successfully if the block is already on the table.
+  )
+
+  (:method m_root_move_to_table
+    :parameters (?b - block)
+    :task (root_move_to_table ?b)
+    :precondition (and (not (on-table ?b)))
+    :ordered-subtasks (and
+      (t1 (clear_block ?b))
+      (t2 (do_move_to_table_cleared ?b))
+    )
+    ; Evidence: Strongly supported. General strategy for placing objects on the table observed in the videos.
+    ; Generalization: Clears the block before moving it, ensuring safety in any initial configuration.
+  )
+
+  (:method m_clear_already_clear
+    :parameters (?b - block)
+    :task (clear_block ?b)
+    :precondition (and (clear ?b))
+    :ordered-subtasks ()
+    ; Evidence: Strongly supported. Blocks like G in Demo 1 are moved without clearing them first because they are already clear.
+    ; Generalization: Base case for the recursive clear task.
+  )
+
+  (:method m_clear_unstack
+    :parameters (?b - block ?top - block)
+    :task (clear_block ?b)
+    :precondition (and (on ?top ?b))
+    :ordered-subtasks (and
+      (t1 (clear_block ?top))
+      (t2 (Unstack ?top ?b))
+      (t3 (Putdown ?top))
+    )
+    ; Evidence: Strongly supported. D is unstacked to clear C (Demo 1).
+    ; Generalization: Recursively clears the block above it, then unstacks it to the table to gradually expose the target block.
+  )
+
+  (:method m_do_move_cleared_from_table
+    :parameters (?b - block ?to - block)
+    :task (do_move_cleared ?b ?to)
+    :precondition (and (on-table ?b))
+    :ordered-subtasks (and
+      (t1 (Pickup ?b))
+      (t2 (Stack ?b ?to))
+    )
+    ; Evidence: Plausible generalization inferred from domain mechanics; table blocks must be Picked up before Stacking.
+    ; Generalization: Applies to any clear block initially on the table or placed there during the clear_block phases.
+  )
+
+  (:method m_do_move_cleared_from_block
+    :parameters (?b - block ?to - block ?from - block)
+    :task (do_move_cleared ?b ?to)
+    :precondition (and (on ?b ?from))
+    :ordered-subtasks (and
+      (t1 (Unstack ?b ?from))
+      (t2 (Stack ?b ?to))
+    )
+    ; Evidence: Strongly supported. G is Unstacked from F and directly Stacked on C (Demo 1).
+    ; Generalization: Directly moves between stacks without placing the block on the table first, improving plan efficiency.
+  )
+
+  (:method m_do_move_to_table_unstack
+    :parameters (?b - block ?from - block)
+    :task (do_move_to_table_cleared ?b)
+    :precondition (and (on ?b ?from))
+    :ordered-subtasks (and
+      (t1 (Unstack ?b ?from))
+      (t2 (Putdown ?b))
+    )
+    ; Evidence: Strongly supported. D is unstacked from C and immediately Putdown onto the table (Demo 1).
+    ; Generalization: Completes the final sequence of moving an unstacked block to the table.
+  )
+
+  ; -----------------------------------------------------------------------
+  ; ACTIONS
+  ; -----------------------------------------------------------------------
+
+  (:action Pickup
+    :parameters (?b - block)
+    :precondition (and (on-table ?b) (clear ?b) (hand-empty))
+    :effect (and (not (on-table ?b)) (not (clear ?b)) (not (hand-empty)) (holding ?b))
+  )
+
+  (:action Putdown
+    :parameters (?b - block)
+    :precondition (and (holding ?b))
+    :effect (and (not (holding ?b)) (hand-empty) (on-table ?b) (clear ?b))
+  )
+
+  (:action Unstack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and (on ?b1 ?b2) (clear ?b1) (hand-empty))
+    :effect (and (not (on ?b1 ?b2)) (not (clear ?b1)) (not (hand-empty)) (clear ?b2) (holding ?b1))
+  )
+
+  (:action Stack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and (holding ?b1) (clear ?b2))
+    :effect (and (not (holding ?b1)) (not (clear ?b2)) (hand-empty) (on ?b1 ?b2) (clear ?b1))
+  )
+
+)

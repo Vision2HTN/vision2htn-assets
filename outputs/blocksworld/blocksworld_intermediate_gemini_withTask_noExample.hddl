@@ -1,0 +1,183 @@
+(define (domain Blocks4)
+  (:requirements :hierarchy :strips :typing :equality :negative-preconditions)
+
+  (:types block)
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  (:task t-Make-On-Table ; ROOT TASK
+    :parameters (?block - block)
+  )
+
+  (:task t-Make-On ; ROOT TASK
+    :parameters (?above - block ?below - block)
+  )
+
+  (:task t-Make-Clear
+    :parameters (?b - block)
+  )
+
+  (:method m-make-on-table-already
+    :parameters (?block - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (and
+      (on-table ?block)
+    )
+    :ordered-subtasks ()
+    ; Evidence: In observed demonstrations, no redundant actions are taken if a block is already in its target position on the table.
+    ; Generalization: Goal condition check; strongly supported.
+  )
+
+  (:method m-make-on-table-from-block
+    :parameters (?block - block ?other - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (and
+      (on ?block ?other)
+    )
+    :ordered-subtasks (and
+      (t-Make-Clear ?block)
+      (Unstack ?block ?other)
+      (Putdown ?block)
+    )
+    ; Evidence: Videos show unstacking a block and placing it on the table to access blocks beneath or achieve a state.
+    ; Generalization: Abstracted to apply to any block currently on another block. Plausible generalization inferred from domain structure.
+  )
+
+  (:method m-make-on-already
+    :parameters (?above - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and
+      (on ?above ?below)
+    )
+    :ordered-subtasks ()
+    ; Evidence: Blocks already stacked correctly are left undisturbed.
+    ; Generalization: Base case for goal achievement; strongly supported.
+  )
+
+  (:method m-make-on-from-table
+    :parameters (?above - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and
+      (not (= ?above ?below))
+      (on-table ?above)
+    )
+    :ordered-subtasks (and
+      (t-Make-Clear ?above)
+      (t-Make-Clear ?below)
+      (Pickup ?above)
+      (Stack ?above ?below)
+    )
+    ; Evidence: Videos (e.g., 2_1.mp4) show blocks being picked up from the table and stacked onto others.
+    ; Generalization: Abstracted to clear both blocks first, enabling stacking from any initial clutter state. Strongly supported.
+  )
+
+  (:method m-make-on-from-block
+    :parameters (?above - block ?below - block ?other - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and
+      (not (= ?above ?below))
+      (not (= ?other ?below))
+      (on ?above ?other)
+    )
+    :ordered-subtasks (and
+      (t-Make-Clear ?above)
+      (t-Make-Clear ?below)
+      (Unstack ?above ?other)
+      (Stack ?above ?below)
+    )
+    ; Evidence: Videos (e.g., 1_10.mp4) show a block being unstacked from one block and stacked directly onto another.
+    ; Generalization: Parameterized to allow any source and target block, provided they are made clear first. Strongly supported.
+  )
+
+  (:method m-make-clear-already
+    :parameters (?b - block)
+    :task (t-Make-Clear ?b)
+    :precondition (and
+      (clear ?b)
+    )
+    :ordered-subtasks ()
+    ; Evidence: Blocks with nothing on them are interacted with directly without any clearing steps.
+    ; Generalization: Base case for the clearing task; strongly supported.
+  )
+
+  (:method m-make-clear-unstack
+    :parameters (?b - block ?top - block)
+    :task (t-Make-Clear ?b)
+    :precondition (and
+      (on ?top ?b)
+    )
+    :ordered-subtasks (and
+      (t-Make-Clear ?top)
+      (Unstack ?top ?b)
+      (Putdown ?top)
+    )
+    ; Evidence: In videos where a block is buried, the top block is removed first.
+    ; Generalization: Recursive clearing to safely clear stacks of any depth. Plausible generalization inferred from domain structure.
+  )
+
+  (:action Pickup
+    :parameters (?b - block)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (hand-empty)
+    )
+    :effect (and
+      (not (on-table ?b))
+      (not (clear ?b))
+      (not (hand-empty))
+      (holding ?b)
+    )
+  )
+
+  (:action Putdown
+    :parameters (?b - block)
+    :precondition (and
+      (holding ?b)
+    )
+    :effect (and
+      (not (holding ?b))
+      (hand-empty)
+      (on-table ?b)
+      (clear ?b)
+    )
+  )
+
+  (:action Unstack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and
+      (on ?b1 ?b2)
+      (clear ?b1)
+      (hand-empty)
+    )
+    :effect (and
+      (not (on ?b1 ?b2))
+      (not (clear ?b1))
+      (not (hand-empty))
+      (clear ?b2)
+      (holding ?b1)
+    )
+  )
+
+  (:action Stack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and
+      (holding ?b1)
+      (clear ?b2)
+    )
+    :effect (and
+      (not (holding ?b1))
+      (not (clear ?b2))
+      (hand-empty)
+      (on ?b1 ?b2)
+      (clear ?b1)
+    )
+  )
+
+)

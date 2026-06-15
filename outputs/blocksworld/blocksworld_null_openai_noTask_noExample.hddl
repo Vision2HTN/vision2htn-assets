@@ -1,0 +1,278 @@
+(define (domain Blocks4)
+
+  (:requirements :hierarchy :strips :typing :equality)
+
+  (:types
+    block
+  )
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  (:task root_make_on ; ROOT TASK ; Strongly supported: assembling towers is the central lifted objective in blocksworld; generalizes to any pair of blocks.
+    :parameters (?top - block ?bottom - block)
+  )
+
+  (:task root_move_to_table ; ROOT TASK ; Strongly supported: moving a block onto the table is a common lifted objective; general across instances.
+    :parameters (?b - block)
+  )
+
+  (:task achieve_on ; Strongly supported: abstract task for making one block rest on another regardless of current support configuration.
+    :parameters (?top - block ?bottom - block)
+  )
+
+  (:task achieve_clear ; Strongly supported: clearing a block is required before stacking/unstacking in many instances; general recursive subgoal.
+    :parameters (?b - block)
+  )
+
+  (:task acquire ; Strongly supported: obtaining a block in hand abstracts over pickup vs unstack and applies broadly.
+    :parameters (?b - block)
+  )
+
+  (:task release_to_table ; Strongly supported: placing a held block on the table abstracts putdown as a reusable lifted subtask.
+    :parameters (?b - block)
+  )
+
+  (:method root_make_on_already_done
+    :parameters (?top - block ?bottom - block)
+    :task (root_make_on ?top ?bottom)
+    :precondition (and
+      (on ?top ?bottom)
+    )
+    :ordered-subtasks (and)
+  )
+
+  (:method root_make_on_via_achieve
+    :parameters (?top - block ?bottom - block)
+    :task (root_make_on ?top ?bottom)
+    :precondition (and
+      (not (= ?top ?bottom))
+    )
+    :ordered-subtasks (and
+      (achieve_on ?top ?bottom)
+    )
+  )
+
+  (:method root_move_to_table_already_done
+    :parameters (?b - block)
+    :task (root_move_to_table ?b)
+    :precondition (and
+      (on-table ?b)
+    )
+    :ordered-subtasks (and)
+  )
+
+  (:method root_move_to_table_via_release
+    :parameters (?b - block ?x - block)
+    :task (root_move_to_table ?b)
+    :precondition (and
+      (not (on-table ?b))
+    )
+    :ordered-subtasks (and
+      (acquire ?b)
+      (release_to_table ?b)
+    )
+  )
+
+  (:method achieve_on_already
+    :parameters (?top - block ?bottom - block)
+    :task (achieve_on ?top ?bottom)
+    :precondition (and
+      (on ?top ?bottom)
+    )
+    :ordered-subtasks (and)
+  )
+
+  (:method achieve_on_from_holding
+    :parameters (?top - block ?bottom - block)
+    :task (achieve_on ?top ?bottom)
+    :precondition (and
+      (holding ?top)
+      (clear ?bottom)
+      (not (= ?top ?bottom))
+    )
+    :ordered-subtasks (and
+      (Stack ?top ?bottom)
+    )
+  )
+
+  (:method achieve_on_general
+    :parameters (?top - block ?bottom - block)
+    :task (achieve_on ?top ?bottom)
+    :precondition (and
+      (not (= ?top ?bottom))
+    )
+    :ordered-subtasks (and
+      (achieve_clear ?top) ; Strong evidence: top block must be clear before pickup/unstack; general prerequisite.
+      (achieve_clear ?bottom) ; Strong evidence: destination must be clear before stack; general prerequisite.
+      (acquire ?top) ; Strong evidence: either pickup or unstack obtains the movable block.
+      (Stack ?top ?bottom)
+    )
+  )
+
+  (:method achieve_clear_already
+    :parameters (?b - block)
+    :task (achieve_clear ?b)
+    :precondition (and
+      (clear ?b)
+    )
+    :ordered-subtasks (and)
+  )
+
+  (:method achieve_clear_by_moving_top_to_table
+    :parameters (?b - block ?x - block)
+    :task (achieve_clear ?b)
+    :precondition (and
+      (on ?x ?b)
+      (not (= ?x ?b))
+    )
+    :ordered-subtasks (and
+      (achieve_clear ?x) ; Strong evidence: to remove x from b, x itself must be clear if something is on it; recursive and lifted.
+      (Unstack ?x ?b)
+      (Putdown ?x) ; Plausible generalisation: table is the universal temporary support available in this domain.
+    )
+  )
+
+  (:method acquire_already_holding
+    :parameters (?b - block)
+    :task (acquire ?b)
+    :precondition (and
+      (holding ?b)
+    )
+    :ordered-subtasks (and)
+  )
+
+  (:method acquire_from_table
+    :parameters (?b - block)
+    :task (acquire ?b)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Pickup ?b)
+    )
+  )
+
+  (:method acquire_from_stack
+    :parameters (?b - block ?under - block)
+    :task (acquire ?b)
+    :precondition (and
+      (on ?b ?under)
+      (clear ?b)
+      (hand-empty)
+      (not (= ?b ?under))
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?under)
+    )
+  )
+
+  (:method release_to_table_already
+    :parameters (?b - block)
+    :task (release_to_table ?b)
+    :precondition (and
+      (on-table ?b)
+    )
+    :ordered-subtasks (and)
+  )
+
+  (:method release_to_table_from_holding
+    :parameters (?b - block)
+    :task (release_to_table ?b)
+    :precondition (and
+      (holding ?b)
+    )
+    :ordered-subtasks (and
+      (Putdown ?b)
+    )
+  )
+
+  (:action Pickup
+    :parameters
+    (
+      ?b - block
+    )
+    :precondition
+    (and
+      (on-table ?b)
+      (clear ?b)
+      (hand-empty)
+    )
+    :effect
+    (and
+      (not (on-table ?b))
+      (not (clear ?b))
+      (not (hand-empty))
+      (holding ?b)
+    )
+  )
+
+  (:action Putdown
+    :parameters
+    (
+      ?b - block
+    )
+    :precondition
+    (and
+      (holding ?b)
+    )
+    :effect
+    (and
+      (not (holding ?b))
+      (hand-empty)
+      (on-table ?b)
+      (clear ?b)
+    )
+  )
+
+  (:action Unstack
+    :parameters
+    (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    (and
+      (on ?b1 ?b2)
+      (clear ?b1)
+      (hand-empty)
+    )
+    :effect
+    (and
+      (not (on ?b1 ?b2))
+      (not (clear ?b1))
+      (not (hand-empty))
+      (clear ?b2)
+      (holding ?b1)
+    )
+  )
+
+  (:action Stack
+    :parameters
+    (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    (and
+      (holding ?b1)
+      (clear ?b2)
+    )
+    :effect
+    (and
+      (not (holding ?b1))
+      (not (clear ?b2))
+      (hand-empty)
+      (on ?b1 ?b2)
+      (clear ?b1)
+    )
+  )
+
+)

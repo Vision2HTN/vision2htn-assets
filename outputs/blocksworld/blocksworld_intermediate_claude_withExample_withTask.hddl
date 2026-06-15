@@ -1,0 +1,411 @@
+(define (domain Blocks4)
+
+  (:requirements :hierarchy :strips :typing :equality)
+
+  (:types block)
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  ; ROOT TASK: make a block end up on the table
+  (:task t-Make-On-Table
+    :parameters (?block - block)
+  )
+
+  ; ROOT TASK: make one block on top of another
+  (:task t-Make-On
+    :parameters (?above - block ?below - block)
+  )
+
+  ; ROOT TASK: achieve a full ordered tower on a given base block
+  ; motivated by all demos where blocks end up in a single stack
+  (:task t-Build-Tower
+    :parameters (?top - block ?base - block)
+  )
+
+  ; intermediate task: clear a block so it can be used as a surface or picked up
+  (:task t-Clear-Block
+    :parameters (?b - block)
+  )
+
+  ; intermediate task: get a specific block into the hand
+  (:task t-Get-Block
+    :parameters (?b - block)
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for t-Make-On-Table
+  ; -----------------------------------------------------------------------
+
+  ; block is already on the table and clear -- nothing to do
+  ; evidence: any demo frame where a block is already at its destination
+  (:method m-Make-On-Table-Already
+    :parameters (?block - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (and
+      (on-table ?block)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; block is on the table but not clear: still satisfies on-table, so done
+  ; (on-table is independent of clear for this task)
+  ; We only need the block to be on-table; clear is irrelevant for this goal.
+
+  ; block is being held -- just put it down
+  ; evidence: crane carries a block then releases it to a stack base
+  (:method m-Make-On-Table-Holding
+    :parameters (?block - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (and
+      (holding ?block)
+    )
+    :ordered-subtasks (and
+      (Putdown ?block)
+    )
+  )
+
+  ; block is on top of another block -- unstack it and put it down
+  ; evidence: 1_10 demo unstacks G from top of stack before moving it
+  (:method m-Make-On-Table-From-Stack
+    :parameters (?block - block ?below - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (and
+      (on ?block ?below)
+      (clear ?block)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Unstack ?block ?below)
+      (Putdown ?block)
+    )
+  )
+
+  ; block is under other blocks -- clear it first then put it on table
+  ; tentative: generalises from cases where target block is buried mid-stack
+  (:method m-Make-On-Table-Buried
+    :parameters (?block - block ?above - block ?below - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (and
+      (on ?above ?block)
+      (on ?block ?below)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (t-Clear-Block ?block)
+      (Unstack ?block ?below)
+      (Putdown ?block)
+    )
+  )
+
+  ; block is on another block and is clear -- direct unstack + putdown
+  ; (subset of above but without the buried case; kept for planner efficiency)
+  ; evidence: multiple demos show top-block being moved to table first
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for t-Make-On
+  ; -----------------------------------------------------------------------
+
+  ; already in the desired configuration
+  ; evidence: any demo frame where the goal pair is already satisfied
+  (:method m-Make-On-Already
+    :parameters (?above - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and
+      (on ?above ?below)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; above block is in hand, below block is clear -- just stack
+  ; evidence: crane grabs a block and places it on the destination
+  (:method m-Make-On-Stack-Direct
+    :parameters (?above - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and
+      (holding ?above)
+      (clear ?below)
+    )
+    :ordered-subtasks (and
+      (Stack ?above ?below)
+    )
+  )
+
+  ; above block is on table and clear, below block is clear
+  ; evidence: demos pick up a block from table and place on another
+  (:method m-Make-On-From-Table
+    :parameters (?above - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and
+      (on-table ?above)
+      (clear ?above)
+      (clear ?below)
+      (hand-empty)
+      (not (= ?above ?below))
+    )
+    :ordered-subtasks (and
+      (Pickup ?above)
+      (Stack ?above ?below)
+    )
+  )
+
+  ; above block is on another block and clear, below is clear
+  ; evidence: 1_10 unstacks G from D then places elsewhere
+  (:method m-Make-On-From-Other-Block
+    :parameters (?above - block ?current-below - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and
+      (on ?above ?current-below)
+      (clear ?above)
+      (clear ?below)
+      (hand-empty)
+      (not (= ?above ?below))
+      (not (= ?current-below ?below))
+    )
+    :ordered-subtasks (and
+      (Unstack ?above ?current-below)
+      (Stack ?above ?below)
+    )
+  )
+
+  ; below block is not clear -- clear it first, then get above block, then stack
+  ; evidence: multiple demos show clearing a destination before stacking
+  (:method m-Make-On-Clear-Below-First
+    :parameters (?above - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and
+      (not (on ?above ?below))
+      (hand-empty)
+      (not (= ?above ?below))
+    )
+    :ordered-subtasks (and
+      (t-Clear-Block ?below)
+      (t-Get-Block ?above)
+      (Stack ?above ?below)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for t-Build-Tower
+  ; evidence: all demos end with a single tall stack (1_10: G,D,A on stack4;
+  ;   1_8: A,B,C,D,E stacked; 1_9: A,B,C,D,E,F stacked; 2_1: A,B,C,D stacked)
+  ; -----------------------------------------------------------------------
+
+  ; base case: top block is already directly on base
+  (:method m-Build-Tower-Base
+    :parameters (?top - block ?base - block)
+    :task (t-Build-Tower ?top ?base)
+    :precondition (and
+      (on ?top ?base)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; recursive case: place top on an intermediate, then ensure intermediate is on base
+  ; tentative generalisation: tower building decomposes recursively
+  (:method m-Build-Tower-Recursive
+    :parameters (?top - block ?mid - block ?base - block)
+    :task (t-Build-Tower ?top ?base)
+    :precondition (and
+      (hand-empty)
+      (not (= ?top ?base))
+      (not (= ?top ?mid))
+      (not (= ?mid ?base))
+    )
+    :ordered-subtasks (and
+      (t-Build-Tower ?mid ?base)
+      (t-Make-On ?top ?mid)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for t-Clear-Block
+  ; evidence: demos repeatedly unstack/putdown top blocks to expose lower ones
+  ; -----------------------------------------------------------------------
+
+  ; block is already clear
+  (:method m-Clear-Block-Already
+    :parameters (?b - block)
+    :task (t-Clear-Block ?b)
+    :precondition (and
+      (clear ?b)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; one block is on top -- unstack it and put it on the table
+  ; evidence: 1_8 unstack E from D, put on table; 2_1 unstack C from A
+  (:method m-Clear-Block-One-Above
+    :parameters (?b - block ?above - block)
+    :task (t-Clear-Block ?b)
+    :precondition (and
+      (on ?above ?b)
+      (clear ?above)
+      (hand-empty)
+      (not (= ?above ?b))
+    )
+    :ordered-subtasks (and
+      (Unstack ?above ?b)
+      (Putdown ?above)
+    )
+  )
+
+  ; multiple blocks above -- recursively clear the top block first
+  ; tentative: generalises from multi-block unstacking sequences in demos
+  (:method m-Clear-Block-Multiple-Above
+    :parameters (?b - block ?above - block)
+    :task (t-Clear-Block ?b)
+    :precondition (and
+      (on ?above ?b)
+      (hand-empty)
+      (not (= ?above ?b))
+    )
+    :ordered-subtasks (and
+      (t-Clear-Block ?above)
+      (Unstack ?above ?b)
+      (Putdown ?above)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for t-Get-Block
+  ; evidence: crane picks up blocks from table or from stacks throughout demos
+  ; -----------------------------------------------------------------------
+
+  ; already holding it
+  (:method m-Get-Block-Already-Holding
+    :parameters (?b - block)
+    :task (t-Get-Block ?b)
+    :precondition (and
+      (holding ?b)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; block is on table and clear
+  (:method m-Get-Block-From-Table
+    :parameters (?b - block)
+    :task (t-Get-Block ?b)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Pickup ?b)
+    )
+  )
+
+  ; block is on another block and clear
+  (:method m-Get-Block-From-Stack
+    :parameters (?b - block ?below - block)
+    :task (t-Get-Block ?b)
+    :precondition (and
+      (on ?b ?below)
+      (clear ?b)
+      (hand-empty)
+      (not (= ?b ?below))
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?below)
+    )
+  )
+
+  ; block is buried -- clear it first then pick it up
+  ; tentative: inferred from multi-step sequences in 1_10, 1_8, 1_9
+  (:method m-Get-Block-Buried-Table
+    :parameters (?b - block)
+    :task (t-Get-Block ?b)
+    :precondition (and
+      (on-table ?b)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (t-Clear-Block ?b)
+      (Pickup ?b)
+    )
+  )
+
+  (:method m-Get-Block-Buried-Stack
+    :parameters (?b - block ?below - block)
+    :task (t-Get-Block ?b)
+    :precondition (and
+      (on ?b ?below)
+      (hand-empty)
+      (not (= ?b ?below))
+    )
+    :ordered-subtasks (and
+      (t-Clear-Block ?b)
+      (Unstack ?b ?below)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; ACTIONS (copied verbatim from PDDL domain)
+  ; -----------------------------------------------------------------------
+
+  (:action Pickup
+    :parameters (?b - block)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (hand-empty)
+    )
+    :effect (and
+      (not (on-table ?b))
+      (not (clear ?b))
+      (not (hand-empty))
+      (holding ?b)
+    )
+  )
+
+  (:action Putdown
+    :parameters (?b - block)
+    :precondition (and
+      (holding ?b)
+    )
+    :effect (and
+      (not (holding ?b))
+      (hand-empty)
+      (on-table ?b)
+      (clear ?b)
+    )
+  )
+
+  (:action Unstack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and
+      (on ?b1 ?b2)
+      (clear ?b1)
+      (hand-empty)
+    )
+    :effect (and
+      (not (on ?b1 ?b2))
+      (not (clear ?b1))
+      (not (hand-empty))
+      (clear ?b2)
+      (holding ?b1)
+    )
+  )
+
+  (:action Stack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and
+      (holding ?b1)
+      (clear ?b2)
+    )
+    :effect (and
+      (not (holding ?b1))
+      (not (clear ?b2))
+      (hand-empty)
+      (on ?b1 ?b2)
+      (clear ?b1)
+    )
+  )
+
+)

@@ -1,0 +1,219 @@
+(define (domain Blocks4)
+  (:requirements :strips :typing :equality :hierarchy)
+  
+  (:types block)
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  ; -----------------------------------------------------------------------
+  ; TASKS
+  ; -----------------------------------------------------------------------
+
+  (:task root_move_to_block                          ; ROOT TASK
+    :parameters (?b1 - block ?b2 - block)
+  )
+
+  (:task root_move_to_table                          ; ROOT TASK
+    :parameters (?b - block)
+  )
+
+  (:task clear_block
+    :parameters (?b - block)
+  )
+
+  (:task move_to_table
+    :parameters (?b - block)
+  )
+
+  (:task move_to_block
+    :parameters (?b1 - block ?b2 - block)
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS
+  ; -----------------------------------------------------------------------
+
+  ; Motivated by tower building in videos (e.g., stacking sequential blocks).
+  ; Generalises to placing any specific block onto another.
+  (:method m_root_move_to_block
+    :parameters (?b1 - block ?b2 - block)
+    :task (root_move_to_block ?b1 ?b2)
+    :precondition (and (not (= ?b1 ?b2)))
+    :ordered-subtasks (and
+      (move_to_block ?b1 ?b2)
+    )
+  )
+
+  ; Motivated by teardown phases in demonstrations where a block is placed on the table.
+  (:method m_root_move_to_table
+    :parameters (?b - block)
+    :task (root_move_to_table ?b)
+    :ordered-subtasks (and
+      (move_to_table ?b)
+    )
+  )
+
+  ; Base case for clearing a block: it is already clear.
+  (:method m_clear_block_already_clear
+    :parameters (?b - block)
+    :task (clear_block ?b)
+    :precondition (and (clear ?b))
+    :ordered-subtasks (and)
+  )
+
+  ; Recursive case: to clear ?b, clear the block on top of it, then move that top block to the table.
+  (:method m_clear_block_unstack
+    :parameters (?b - block ?top - block)
+    :task (clear_block ?b)
+    :precondition (and (on ?top ?b))
+    :ordered-subtasks (and
+      (clear_block ?top)
+      (move_to_table ?top)
+    )
+  )
+
+  ; Base case: block is already on the table.
+  (:method m_move_to_table_already
+    :parameters (?b - block)
+    :task (move_to_table ?b)
+    :precondition (and (on-table ?b))
+    :ordered-subtasks (and)
+  )
+
+  ; Tentative generalisation: handles cases where the planner or agent is already holding the block.
+  (:method m_move_to_table_held
+    :parameters (?b - block)
+    :task (move_to_table ?b)
+    :precondition (and (holding ?b))
+    :ordered-subtasks (and
+      (Putdown ?b)
+    )
+  )
+
+  ; Unstack a block from another and put it on the table. Supported by repeated Unstack->Putdown sequences.
+  (:method m_move_to_table_from_block
+    :parameters (?b - block ?under - block)
+    :task (move_to_table ?b)
+    :precondition (and (on ?b ?under))
+    :ordered-subtasks (and
+      (clear_block ?b)
+      (Unstack ?b ?under)
+      (Putdown ?b)
+    )
+  )
+
+  ; Base case: block is already in the target position.
+  (:method m_move_to_block_already
+    :parameters (?b1 - block ?b2 - block)
+    :task (move_to_block ?b1 ?b2)
+    :precondition (and (on ?b1 ?b2))
+    :ordered-subtasks (and)
+  )
+
+  ; Stacking a block that is currently being held.
+  (:method m_move_to_block_held
+    :parameters (?b1 - block ?b2 - block)
+    :task (move_to_block ?b1 ?b2)
+    :precondition (and (holding ?b1) (not (= ?b1 ?b2)))
+    :ordered-subtasks (and
+      (clear_block ?b2)
+      (Stack ?b1 ?b2)
+    )
+  )
+
+  ; Stacking a block that is currently on the table. Supported by Pickup->Stack sequences in the videos.
+  (:method m_move_to_block_from_table
+    :parameters (?b1 - block ?b2 - block)
+    :task (move_to_block ?b1 ?b2)
+    :precondition (and (on-table ?b1) (not (= ?b1 ?b2)))
+    :ordered-subtasks (and
+      (clear_block ?b1)
+      (clear_block ?b2)
+      (Pickup ?b1)
+      (Stack ?b1 ?b2)
+    )
+  )
+
+  ; Move a block directly from one stack to another. Supported by Unstack->Stack sequences.
+  (:method m_move_to_block_from_block
+    :parameters (?b1 - block ?b2 - block ?under - block)
+    :task (move_to_block ?b1 ?b2)
+    :precondition (and (on ?b1 ?under) (not (= ?b1 ?b2)) (not (= ?under ?b2)))
+    :ordered-subtasks (and
+      (clear_block ?b1)
+      (clear_block ?b2)
+      (Unstack ?b1 ?under)
+      (Stack ?b1 ?b2)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; ACTIONS
+  ; -----------------------------------------------------------------------
+
+  (:action Pickup
+    :parameters (?b - block)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (hand-empty)
+    )
+    :effect (and
+      (not (on-table ?b))
+      (not (clear ?b))
+      (not (hand-empty))
+      (holding ?b)
+    )
+  )
+
+  (:action Putdown
+    :parameters (?b - block)
+    :precondition (and
+      (holding ?b)
+    )
+    :effect (and
+      (not (holding ?b))
+      (hand-empty)
+      (on-table ?b)
+      (clear ?b)
+    )
+  )
+
+  (:action Unstack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and
+      (on ?b1 ?b2)
+      (clear ?b1)
+      (hand-empty)
+    )
+    :effect (and
+      (not (on ?b1 ?b2))
+      (not (clear ?b1))
+      (not (hand-empty))
+      (clear ?b2)
+      (holding ?b1)
+    )
+  )
+
+  (:action Stack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and
+      (holding ?b1)
+      (clear ?b2)
+    )
+    :effect (and
+      (not (holding ?b1))
+      (not (clear ?b2))
+      (hand-empty)
+      (on ?b1 ?b2)
+      (clear ?b1)
+    )
+  )
+
+)

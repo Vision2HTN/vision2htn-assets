@@ -1,0 +1,264 @@
+(define (domain overcooked)
+  (:requirements :strips :typing :hierarchy)
+
+  (:types
+    location
+    status count
+    agent pile pot delivery - locatable
+    ingredient dish bowl marker - item
+    agent table - holdable
+  )
+
+  (:predicates
+    (at ?x - locatable ?l - location)
+    (connect ?from ?to - location)
+    (reachable ?table - table ?from - location)
+    (holding ?a - holdable ?i - item)
+    (contains ?p - pile ?i - item)
+    (increment ?n1 ?n2 - count)
+    (recipe ?d - dish ?i1 - ingredient ?n1 - count ?i2 - ingredient ?n2 - count)
+    (in-pot ?p - pot ?i - ingredient ?n - count)
+    (pot-status ?p - pot ?s - status)
+    (cooking-progress ?s1 ?s2 - status)
+    (finished-status ?s - status)
+    (idle-status ?s - status)
+    (is-zero ?n - count)
+    (label-pot-dish ?p - pot ?d - dish)
+    (delivered ?d - dish)
+  )
+
+  (:task t-serve-dish
+    :parameters (?dish - dish)
+  )
+
+  (:task t-fulfill_ingredient
+    :parameters (?pot - pot ?i - ingredient ?count - count)
+  )
+
+  (:task t-add-one-ingredient
+    :parameters (?pot - pot ?i - ingredient ?ncurrent ?nnext - count)
+  )
+
+  (:task t-cook
+    :parameters (?pot - pot ?dish - dish ?finish - status)
+  )
+
+  (:task t-get-to
+    :parameters (?a - agent ?l - location)
+  )
+
+  (:task t-get-item
+    :parameters (?a - agent ?item - item)
+  )
+
+  (:method m-serve-dish
+    :parameters (?dish - dish ?pot - pot ?i1 ?i2 - ingredient ?n1 ?n2 ?zero - count
+                 ?loc - location ?a-cook ?a-serve - agent ?start ?finish ?idle - status
+                 ?bowl - bowl ?del - delivery ?del-loc - location ?free - marker)
+    :task (t-serve-dish ?dish)
+    :precondition (and
+      (recipe ?dish ?i1 ?n1 ?i2 ?n2)
+      (at ?pot ?loc)
+      (at ?del ?del-loc)
+      (pot-status ?pot ?idle)
+      (cooking-progress ?idle ?start)
+      (finished-status ?finish)
+      (idle-status ?idle)
+      (is-zero ?zero)
+    )
+    :ordered-subtasks (and
+      (t-fulfill_ingredient ?pot ?i1 ?n1)
+      (t-fulfill_ingredient ?pot ?i2 ?n2)
+      (t-get-to ?a-cook ?loc)
+      (start-cook ?a-cook ?pot ?loc ?dish ?i1 ?i2 ?n1 ?n2 ?zero ?free ?idle ?start)
+      (t-cook ?pot ?dish ?finish)
+      (t-get-item ?a-serve ?bowl)
+      (t-get-to ?a-serve ?loc)
+      (pour-from-pot ?a-serve ?pot ?loc ?dish ?bowl ?finish ?idle)
+      (t-get-to ?a-serve ?del-loc)
+      (drop-off-to-delivery ?a-serve ?del ?del-loc ?dish ?free)
+    )
+  )
+
+  (:method m-fulfill-ingredient-done
+    :parameters (?pot - pot ?i - ingredient ?count - count)
+    :task (t-fulfill_ingredient ?pot ?i ?count)
+    :precondition (in-pot ?pot ?i ?count)
+    :subtasks ()
+  )
+
+  (:method m-fulfill-ingredient-step
+    :parameters (?pot - pot ?i - ingredient ?target-count ?curr ?next - count)
+    :task (t-fulfill_ingredient ?pot ?i ?target-count)
+    :precondition (and
+      (in-pot ?pot ?i ?curr)
+      (increment ?curr ?next)
+    )
+    :ordered-subtasks (and
+      (t-add-one-ingredient ?pot ?i ?curr ?next)
+      (t-fulfill_ingredient ?pot ?i ?target-count)
+    )
+  )
+
+  (:method m-add-one-direct
+    :parameters (?pot - pot ?i - ingredient ?curr ?next - count ?a - agent ?loc - location ?free - marker ?idle - status)
+    :task (t-add-one-ingredient ?pot ?i ?curr ?next)
+    :precondition (and
+      (at ?pot ?loc)
+      (pot-status ?pot ?idle)
+      (idle-status ?idle)
+    )
+    :ordered-subtasks (and
+      (t-get-item ?a ?i)
+      (t-get-to ?a ?loc)
+      (add-to-pot ?a ?pot ?loc ?i ?curr ?next ?free ?idle)
+    )
+  )
+
+  (:method m-add-one-collaborative
+    :parameters (?pot - pot ?i - ingredient ?curr ?next - count ?a1 ?a2 - agent ?t - table ?t-loc ?p-loc - location ?free - marker ?idle - status)
+    :task (t-add-one-ingredient ?pot ?i ?curr ?next)
+    :precondition (and
+      (at ?pot ?p-loc)
+      (reachable ?t ?t-loc)
+      (pot-status ?pot ?idle)
+      (idle-status ?idle)
+    )
+    :ordered-subtasks (and
+      (t-get-item ?a1 ?i)
+      (t-get-to ?a1 ?t-loc)
+      (drop-off-to-table ?a1 ?t ?t-loc ?i ?free)
+      (t-get-to ?a2 ?t-loc)
+      (pick-up-from-table ?a2 ?t ?t-loc ?i ?free)
+      (t-get-to ?a2 ?p-loc)
+      (add-to-pot ?a2 ?pot ?p-loc ?i ?curr ?next ?free ?idle)
+    )
+  )
+
+  (:method m-do-cook
+    :parameters (?pot - pot ?dish - dish ?finish ?start - status)
+    :task (t-cook ?pot ?dish ?finish)
+    :precondition (and
+      (pot-status ?pot ?start)
+      (cooking-progress ?start ?finish)
+    )
+    :ordered-subtasks (and
+      (cook ?pot ?start ?finish)
+    )
+  )
+
+  (:method m-get-item-from-pile
+    :parameters (?a - agent ?item - item ?p - pile ?loc - location ?free - marker)
+    :task (t-get-item ?a ?item)
+    :precondition (and
+      (contains ?p ?item)
+      (at ?p ?loc)
+    )
+    :ordered-subtasks (and
+      (t-get-to ?a ?loc)
+      (pick-up-from-pile ?a ?p ?loc ?item ?free)
+    )
+  )
+
+  (:method m-already-there
+    :parameters (?a - agent ?loc - location)
+    :task (t-get-to ?a ?loc)
+    :precondition (at ?a ?loc)
+    :subtasks ()
+  )
+
+  (:method m-move-to
+    :parameters (?a - agent ?loc ?from ?next - location)
+    :task (t-get-to ?a ?loc)
+    :precondition (and
+      (at ?a ?from)
+      (connect ?from ?next)
+    )
+    :ordered-subtasks (and
+      (move ?a ?from ?next)
+      (t-get-to ?a ?loc)
+    )
+  )
+
+  (:action move
+    :parameters (?a - agent ?from ?to - location)
+    :precondition (and (at ?a ?from) (connect ?from ?to))
+    :effect (and (not (at ?a ?from)) (at ?a ?to))
+  )
+
+  (:action pick-up-from-pile
+    :parameters (?a - agent ?p - pile ?l - location ?item - item ?free - marker)
+    :precondition (and (at ?a ?l) (at ?p ?l) (holding ?a ?free) (contains ?p ?item))
+    :effect (and (not (holding ?a ?free)) (holding ?a ?item))
+  )
+
+  (:action pick-up-from-table
+    :parameters (?a - agent ?table - table ?l - location ?item - item ?free - marker)
+    :precondition (and (at ?a ?l) (reachable ?table ?l) (holding ?a ?free) (holding ?table ?item))
+    :effect (and (not (holding ?a ?free)) (holding ?a ?item) (not (holding ?table ?item)) (holding ?table ?free))
+  )
+
+  (:action drop-off-to-table
+    :parameters (?a - agent ?table - table ?l - location ?item - item ?free - marker)
+    :precondition (and (at ?a ?l) (reachable ?table ?l) (holding ?a ?item) (holding ?table ?free))
+    :effect (and (not (holding ?table ?free)) (holding ?a ?free) (holding ?table ?item) (not (holding ?a ?item)))
+  )
+
+  (:action add-to-pot
+    :parameters (?a - agent ?p - pot ?l - location ?i - ingredient ?n1 ?n2 - count ?free - marker ?idle - status)
+    :precondition (and
+      (at ?a ?l) (at ?p ?l) (holding ?a ?i)
+      (in-pot ?p ?i ?n1) (increment ?n1 ?n2)
+      (pot-status ?p ?idle)
+      (idle-status ?idle)
+    )
+    :effect (and
+      (not (holding ?a ?i)) (holding ?a ?free)
+      (not (in-pot ?p ?i ?n1)) (in-pot ?p ?i ?n2)
+    )
+  )
+
+  (:action start-cook
+    :parameters (?a - agent ?p - pot ?l - location ?d - dish ?i1 ?i2 - ingredient ?n1 ?n2 ?zero - count ?free - marker ?idle ?start - status)
+    :precondition (and
+      (at ?a ?l) (at ?p ?l) (holding ?a ?free)
+      (pot-status ?p ?idle) (cooking-progress ?idle ?start)
+      (in-pot ?p ?i1 ?n1) (in-pot ?p ?i2 ?n2)
+      (recipe ?d ?i1 ?n1 ?i2 ?n2)
+      (is-zero ?zero)
+    )
+    :effect (and
+      (not (pot-status ?p ?idle)) (pot-status ?p ?start)
+      (not (in-pot ?p ?i1 ?n1)) (not (in-pot ?p ?i2 ?n2))
+      (in-pot ?p ?i1 ?zero) (in-pot ?p ?i2 ?zero)
+      (label-pot-dish ?p ?d)
+    )
+  )
+
+  (:action cook
+    :parameters (?p - pot ?s1 ?s2 - status)
+    :precondition (and (pot-status ?p ?s1) (cooking-progress ?s1 ?s2))
+    :effect (and (not (pot-status ?p ?s1)) (pot-status ?p ?s2))
+  )
+
+  (:action pour-from-pot
+    :parameters (?a - agent ?p - pot ?l - location ?d - dish ?b - bowl ?finish ?idle - status)
+    :precondition (and
+      (at ?a ?l) (at ?p ?l) (holding ?a ?b)
+      (pot-status ?p ?finish) (finished-status ?finish)
+      (label-pot-dish ?p ?d)
+      (idle-status ?idle)
+    )
+    :effect (and
+      (not (holding ?a ?b)) (holding ?a ?d)
+      (not (pot-status ?p ?finish)) (pot-status ?p ?idle)
+      (not (label-pot-dish ?p ?d))
+    )
+  )
+
+  (:action drop-off-to-delivery
+    :parameters (?a - agent ?del - delivery ?l - location ?d - dish ?free - marker)
+    :precondition (and (at ?a ?l) (at ?del ?l) (holding ?a ?d))
+    :effect (and (not (holding ?a ?d)) (holding ?a ?free) (delivered ?d))
+  )
+)

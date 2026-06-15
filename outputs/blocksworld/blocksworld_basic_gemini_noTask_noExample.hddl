@@ -1,0 +1,173 @@
+(define (domain Blocks4)
+  (:requirements :strips :typing :equality :hierarchy :negative-preconditions)
+  
+  (:types block)
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  (:task achieve-on
+    :parameters (?b - block ?dest - block)
+  )
+
+  (:task achieve-on-table
+    :parameters (?b - block)
+  )
+
+  (:task do-clear
+    :parameters (?b - block)
+  )
+
+  (:method m-achieve-on-already
+    :parameters (?b - block ?dest - block)
+    :task (achieve-on ?b ?dest)
+    :precondition (on ?b ?dest)
+    :ordered-subtasks ()
+  )
+
+  (:method m-achieve-on-from-table
+    :parameters (?b - block ?dest - block)
+    :task (achieve-on ?b ?dest)
+    :precondition (and 
+      (on-table ?b) 
+      (not (= ?b ?dest))
+    )
+    :ordered-subtasks (and
+      (do-clear ?b)
+      (do-clear ?dest)
+      (Pickup ?b)
+      (Stack ?b ?dest)
+    )
+  )
+
+  (:method m-achieve-on-from-block
+    :parameters (?b - block ?dest - block ?under - block)
+    :task (achieve-on ?b ?dest)
+    :precondition (and 
+      (on ?b ?under) 
+      (not (= ?under ?dest)) 
+      (not (= ?b ?dest))
+    )
+    :ordered-subtasks (and
+      (do-clear ?b)
+      (do-clear ?dest)
+      (Unstack ?b ?under)
+      (Stack ?b ?dest)
+    )
+  )
+
+  (:method m-achieve-on-via-table
+    :parameters (?b - block ?dest - block ?under - block)
+    :task (achieve-on ?b ?dest)
+    :precondition (and 
+      (on ?b ?under) 
+      (not (= ?under ?dest)) 
+      (not (= ?b ?dest))
+    )
+    :ordered-subtasks (and
+      (achieve-on-table ?b)
+      (achieve-on ?b ?dest)
+    )
+  )
+
+  (:method m-achieve-on-table-already
+    :parameters (?b - block)
+    :task (achieve-on-table ?b)
+    :precondition (on-table ?b)
+    :ordered-subtasks ()
+  )
+
+  (:method m-achieve-on-table-from-block
+    :parameters (?b - block ?under - block)
+    :task (achieve-on-table ?b)
+    :precondition (on ?b ?under)
+    :ordered-subtasks (and
+      (do-clear ?b)
+      (Unstack ?b ?under)
+      (Putdown ?b)
+    )
+  )
+
+  (:method m-clear-noop
+    :parameters (?b - block)
+    :task (do-clear ?b)
+    :precondition (clear ?b)
+    :ordered-subtasks ()
+  )
+
+  (:method m-clear-unstack
+    :parameters (?b - block ?top - block)
+    :task (do-clear ?b)
+    :precondition (on ?top ?b)
+    :ordered-subtasks (and
+      (do-clear ?top)
+      (Unstack ?top ?b)
+      (Putdown ?top)
+    )
+  )
+
+  (:action Pickup
+    :parameters (?b - block)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (hand-empty)
+    )
+    :effect (and
+      (not (on-table ?b))
+      (not (clear ?b))
+      (not (hand-empty))
+      (holding ?b)
+    )
+  )
+
+  (:action Putdown
+    :parameters (?b - block)
+    :precondition (and
+      (holding ?b)
+    )
+    :effect (and
+      (not (holding ?b))
+      (hand-empty)
+      (on-table ?b)
+      (clear ?b)
+    )
+  )
+
+  (:action Unstack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and
+      (on ?b1 ?b2)
+      (clear ?b1)
+      (hand-empty)
+    )
+    :effect (and
+      (not (on ?b1 ?b2))
+      (not (clear ?b1))
+      (not (hand-empty))
+      (clear ?b2)
+      (holding ?b1)
+    )
+  )
+
+  (:action Stack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and
+      (holding ?b1)
+      (clear ?b2)
+    )
+    :effect (and
+      (not (holding ?b1))
+      (not (clear ?b2))
+      (hand-empty)
+      (on ?b1 ?b2)
+      (clear ?b1)
+    )
+  )
+
+)

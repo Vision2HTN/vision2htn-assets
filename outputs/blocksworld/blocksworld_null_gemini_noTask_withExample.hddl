@@ -1,0 +1,186 @@
+(define (domain Blocks4)
+  (:requirements :hierarchy :strips :typing :equality)
+
+  (:types 
+    block
+  )
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  ; -----------------------------------------------------------------------
+  ; TASKS
+  ; -----------------------------------------------------------------------
+
+  (:task move-block                          ; ROOT TASK
+    :parameters (?b - block ?to - block)
+    ; (a) Motivated by observations of placing one block onto another to form a stack.
+    ; (b) Generalises as the fundamental goal to stack any block ?b onto any other block ?to, regardless of their starting positions.
+  )
+
+  (:task move-to-table                       ; ROOT TASK
+    :parameters (?b - block)
+    ; (a) Motivated by observations of unstacking a block and placing it onto the surface.
+    ; (b) Generalises as a general objective to isolate any block ?b on the table.
+  )
+
+  (:task clear-block
+    :parameters (?b - block)
+    ; (a) Motivated by the necessity to remove obstructions from blocks before they can be moved.
+    ; (b) Generalises as an intermediate abstract subtask to recursively remove any sequence of blocks currently stacked on ?b.
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS
+  ; -----------------------------------------------------------------------
+
+  (:method move-block-already-there
+    :parameters (?b - block ?to - block)
+    :task (move-block ?b ?to)
+    :precondition (on ?b ?to)
+    :subtasks ()
+    ; (a) Motivated by goal-checking logic where a desired stacking configuration is already present.
+    ; (b) Generalises to avoid redundant actions when the goal condition (on ?b ?to) is already satisfied.
+  )
+
+  (:method move-block-from-table
+    :parameters (?b - block ?to - block)
+    :task (move-block ?b ?to)
+    :precondition (and (on-table ?b) (not (= ?b ?to)))
+    :ordered-subtasks (and
+      (clear-block ?b)
+      (clear-block ?to)
+      (Pickup ?b)
+      (Stack ?b ?to)
+    )
+    ; (a) Motivated by picking a block directly from the table and stacking it.
+    ; (b) Generalises by ensuring both the target block and destination block are structurally clear before attempting the pick-and-stack sequence.
+  )
+
+  (:method move-block-from-block
+    :parameters (?b - block ?from - block ?to - block)
+    :task (move-block ?b ?to)
+    :precondition (and (on ?b ?from) (not (= ?b ?to)))
+    :ordered-subtasks (and
+      (clear-block ?b)
+      (clear-block ?to)
+      (Unstack ?b ?from)
+      (Stack ?b ?to)
+    )
+    ; (a) Motivated by moving a block from an existing stack to a new stack.
+    ; (b) Generalises by dynamically identifying the ?from block, ensuring clearances, and gracefully substituting Unstack for Pickup.
+  )
+
+  (:method move-to-table-already-there
+    :parameters (?b - block)
+    :task (move-to-table ?b)
+    :precondition (on-table ?b)
+    :subtasks ()
+    ; (a) Motivated by checking if a target block is already safely on the surface.
+    ; (b) Generalises to prevent unneeded pick/putdown sequences.
+  )
+
+  (:method move-to-table-from-block
+    :parameters (?b - block ?from - block)
+    :task (move-to-table ?b)
+    :precondition (on ?b ?from)
+    :ordered-subtasks (and
+      (clear-block ?b)
+      (Unstack ?b ?from)
+      (Putdown ?b)
+    )
+    ; (a) Motivated by unstacking a block to dismantle a tower.
+    ; (b) Generalises across any stack by first ensuring the target block is clear, then transferring it down to the table surface.
+  )
+
+  (:method clear-block-already-clear
+    :parameters (?b - block)
+    :task (clear-block ?b)
+    :precondition (clear ?b)
+    :subtasks ()
+    ; (a) Motivated by encountering blocks that have no other blocks on top of them.
+    ; (b) Acts as the base case for the recursive clearing task; applies to any clear block in the environment.
+  )
+
+  (:method clear-block-not-clear
+    :parameters (?b - block ?top - block)
+    :task (clear-block ?b)
+    :precondition (on ?top ?b)
+    :ordered-subtasks (and
+      (clear-block ?top)
+      (Unstack ?top ?b)
+      (Putdown ?top)
+    )
+    ; (a) Motivated by the action of removing an obstruction to access a specific block below.
+    ; (b) Recursively generalises to towers of arbitrary height by identifying the immediate ?top block, clearing it, and putting it on the table.
+  )
+
+  ; -----------------------------------------------------------------------
+  ; ACTIONS
+  ; -----------------------------------------------------------------------
+
+  (:action Pickup
+    :parameters ( ?b - block )
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (hand-empty)
+    )
+    :effect (and
+      (not (on-table ?b))
+      (not (clear ?b))
+      (not (hand-empty))
+      (holding ?b)
+    )
+  )
+
+  (:action Putdown
+    :parameters ( ?b - block )
+    :precondition (and
+      (holding ?b)
+    )
+    :effect (and
+      (not (holding ?b))
+      (hand-empty)
+      (on-table ?b)
+      (clear ?b)
+    )
+  )
+
+  (:action Unstack
+    :parameters ( ?b1 - block ?b2 - block )
+    :precondition (and
+      (on ?b1 ?b2)
+      (clear ?b1)
+      (hand-empty)
+    )
+    :effect (and
+      (not (on ?b1 ?b2))
+      (not (clear ?b1))
+      (not (hand-empty))
+      (clear ?b2)
+      (holding ?b1)
+    )
+  )
+
+  (:action Stack
+    :parameters ( ?b1 - block ?b2 - block )
+    :precondition (and
+      (holding ?b1)
+      (clear ?b2)
+    )
+    :effect (and
+      (not (holding ?b1))
+      (not (clear ?b2))
+      (hand-empty)
+      (on ?b1 ?b2)
+      (clear ?b1)
+    )
+  )
+
+)

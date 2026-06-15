@@ -1,0 +1,261 @@
+(define (domain Blocks4)
+  (:requirements :strips :typing :equality :negative-preconditions :hierarchy)
+
+  (:types
+    block
+  )
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  ; -----------------------------------------------------------------------
+  ; TASKS
+  ; -----------------------------------------------------------------------
+
+  (:task t-Make-On-Table ; ROOT TASK
+    ; Evidence: Motivated by predefined context tasks to place blocks on the table.
+    ; Generalization: Abstracted to serve as a top-level goal for moving any block to the table, regardless of its starting state.
+    :parameters (?block - block)
+  )
+
+  (:task t-Make-On ; ROOT TASK
+    ; Evidence: Motivated by predefined context tasks to stack blocks.
+    ; Generalization: Abstracted to serve as a top-level goal for assembling any tower configuration across different problem instances.
+    :parameters (?above - block ?below - block)
+  )
+
+  (:task t-Clear
+    ; Evidence: Supported by demonstrations showing unstacking before interacting with a target block.
+    ; Generalization: Recursive task abstracting the process of removing any number of blocks from above a target block.
+    :parameters (?b - block)
+  )
+
+  (:task t-Empty-Hand
+    ; Evidence: Supported by sequences where the agent drops a block before attempting to pick up another.
+    ; Generalization: A generic helper task to ensure the hand is free and ready for new actions.
+    :parameters ()
+  )
+
+  (:task t-Get
+    ; Evidence: Motivated by the necessity to acquire specific blocks prior to stacking or dropping them.
+    ; Generalization: Consolidates the acquisition logic, whether the target block is on the table, in a stack, or already held.
+    :parameters (?b - block)
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS
+  ; -----------------------------------------------------------------------
+
+  ; --- Methods for t-Make-On-Table ---
+
+  (:method m-make-on-table-already
+    ; Evidence: Observing efficiency (no-ops) when the goal state is already satisfied.
+    ; Generalization: Resolves trivially to prevent redundant actions if the block is already on the table.
+    :parameters (?block - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (on-table ?block)
+    :ordered-subtasks (and)
+  )
+
+  (:method m-make-on-table-do
+    ; Evidence: The sequence of unstacking or picking up a block and dropping it.
+    ; Generalization: Safely acquires the target block from any arbitrary state and deposits it onto the table.
+    :parameters (?block - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (not (on-table ?block))
+    :ordered-subtasks (and
+      (t-Get ?block)
+      (Putdown ?block)
+    )
+  )
+
+  ; --- Methods for t-Make-On ---
+
+  (:method m-make-on-already
+    ; Evidence: Observing early termination when a stack segment is already correctly built.
+    ; Generalization: Base case strategy for stacking goals.
+    :parameters (?above - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (on ?above ?below)
+    :ordered-subtasks (and)
+  )
+
+  (:method m-make-on-do
+    ; Evidence: Sequences demonstrating clearing target bases, acquiring the source block, and executing a stack.
+    ; Generalization: Guarantees the target base is clear before attempting to fetch the upper block and executing the stack.
+    :parameters (?above - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and 
+      (not (= ?above ?below))
+      (not (on ?above ?below))
+    )
+    :ordered-subtasks (and
+      (t-Clear ?below)
+      (t-Get ?above)
+      (Stack ?above ?below)
+    )
+  )
+
+  ; --- Methods for t-Clear ---
+
+  (:method m-clear-already
+    ; Evidence: A block is interacted with directly because nothing is on top of it.
+    ; Generalization: Base case for the recursive clearing logic.
+    :parameters (?b - block)
+    :task (t-Clear ?b)
+    :precondition (clear ?b)
+    :ordered-subtasks (and)
+  )
+
+  (:method m-clear-holding
+    ; Evidence: The agent drops a held block when it needs to be acted upon as a clear target base.
+    ; Generalization: Ensures the target block is deposited and free if the planner initially started with it in hand.
+    :parameters (?b - block)
+    :task (t-Clear ?b)
+    :precondition (holding ?b)
+    :ordered-subtasks (and
+      (Putdown ?b)
+    )
+  )
+
+  (:method m-clear-unstack
+    ; Evidence: Demonstrations showing removal of upper blocks to access the ones beneath.
+    ; Generalization: Recursively clears the block directly above and then unstacks it, inherently supporting towers of any height.
+    :parameters (?b - block ?top - block)
+    :task (t-Clear ?b)
+    :precondition (on ?top ?b)
+    :ordered-subtasks (and
+      (t-Empty-Hand)
+      (t-Clear ?top)
+      (Unstack ?top ?b)
+      (Putdown ?top)
+    )
+  )
+
+  ; --- Methods for t-Empty-Hand ---
+
+  (:method m-empty-hand-already
+    ; Evidence: Standard operations initiating with an empty hand state.
+    ; Generalization: Base case requiring zero operations when hand is free.
+    :parameters ()
+    :task (t-Empty-Hand)
+    :precondition (hand-empty)
+    :ordered-subtasks (and)
+  )
+
+  (:method m-empty-hand-do
+    ; Evidence: Agent actively discarding an unneeded block to proceed with the next grasp.
+    ; Generalization: Universally drops whatever is held.
+    :parameters (?b - block)
+    :task (t-Empty-Hand)
+    :precondition (holding ?b)
+    :ordered-subtasks (and
+      (Putdown ?b)
+    )
+  )
+
+  ; --- Methods for t-Get ---
+
+  (:method m-get-holding
+    ; Evidence: Immediate usage of a block already in the agent's possession.
+    ; Generalization: Bypasses acquisition if the specific required block is actively held.
+    :parameters (?b - block)
+    :task (t-Get ?b)
+    :precondition (holding ?b)
+    :ordered-subtasks (and)
+  )
+
+  (:method m-get-from-table
+    ; Evidence: Agent explicitly picking up an available block from the table surface.
+    ; Generalization: Resolves acquiring blocks resting on the table by first enforcing clearances.
+    :parameters (?b - block)
+    :task (t-Get ?b)
+    :precondition (on-table ?b)
+    :ordered-subtasks (and
+      (t-Empty-Hand)
+      (t-Clear ?b)
+      (Pickup ?b)
+    )
+  )
+
+  (:method m-get-from-block
+    ; Evidence: Agent successfully unstacking a required block from a tower.
+    ; Generalization: Handles acquiring a block resting on top of another block by ensuring it is clear and unstacking it.
+    :parameters (?b - block ?under - block)
+    :task (t-Get ?b)
+    :precondition (on ?b ?under)
+    :ordered-subtasks (and
+      (t-Empty-Hand)
+      (t-Clear ?b)
+      (Unstack ?b ?under)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; ACTIONS
+  ; -----------------------------------------------------------------------
+
+  (:action Pickup
+    :parameters (?b - block)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (hand-empty)
+    )
+    :effect (and
+      (not (on-table ?b))
+      (not (clear ?b))
+      (not (hand-empty))
+      (holding ?b)
+    )
+  )
+
+  (:action Putdown
+    :parameters (?b - block)
+    :precondition (and
+      (holding ?b)
+    )
+    :effect (and
+      (not (holding ?b))
+      (hand-empty)
+      (on-table ?b)
+      (clear ?b)
+    )
+  )
+
+  (:action Unstack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and
+      (on ?b1 ?b2)
+      (clear ?b1)
+      (hand-empty)
+    )
+    :effect (and
+      (not (on ?b1 ?b2))
+      (not (clear ?b1))
+      (not (hand-empty))
+      (clear ?b2)
+      (holding ?b1)
+    )
+  )
+
+  (:action Stack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and
+      (holding ?b1)
+      (clear ?b2)
+    )
+    :effect (and
+      (not (holding ?b1))
+      (not (clear ?b2))
+      (hand-empty)
+      (on ?b1 ?b2)
+      (clear ?b1)
+    )
+  )
+)

@@ -1,0 +1,331 @@
+(define (domain Blocks4)
+
+  (:requirements :hierarchy :strips :typing :equality)
+
+  (:types
+    block
+  )
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  ; Strongly supported root task: directly aligned with provided abstract task t-Make-On-Table,
+  ; and generalizes to any block that should be made to rest on the table.
+  (:task root-make-on-table
+    :parameters (?block - block)
+  )
+
+  ; Strongly supported root task: directly aligned with provided abstract task t-Make-On,
+  ; and generalizes to any desired above/below stacking relation.
+  (:task root-make-on
+    :parameters (?above - block
+                 ?below - block)
+  )
+
+  ; Strongly supported intermediate task: matches provided task schema and supports recursive decomposition.
+  (:task t-Make-On-Table
+    :parameters (?block - block)
+  )
+
+  ; Strongly supported intermediate task: matches provided task schema and supports recursive decomposition.
+  (:task t-Make-On
+    :parameters (?above - block
+                 ?below - block)
+  )
+
+  ; Plausible lifted helper: observed blocksworld solutions often require clearing a block before pickup/stack;
+  ; this generalizes broadly because clear-conditions appear in primitive action preconditions.
+  (:task t-Clear
+    :parameters (?block - block)
+  )
+
+  ; Plausible lifted helper: used to make a block holdable regardless of whether it starts on table or another block.
+  (:task t-Hold
+    :parameters (?block - block)
+  )
+
+  ; Strongly supported wrapper from root objective to domain task.
+  (:method m-root-make-on-table
+    :parameters (?block - block)
+    :task (root-make-on-table ?block)
+    :precondition (and)
+    :ordered-subtasks (and
+      (t-Make-On-Table ?block)
+    )
+  )
+
+  ; Strongly supported wrapper from root objective to domain task.
+  (:method m-root-make-on
+    :parameters (?above - block
+                 ?below - block)
+    :task (root-make-on ?above ?below)
+    :precondition (and)
+    :ordered-subtasks (and
+      (t-Make-On ?above ?below)
+    )
+  )
+
+  ; Strongly supported no-op achievement: if already on table, nothing more is needed.
+  (:method m-make-on-table-already
+    :parameters (?block - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (and
+      (on-table ?block)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; Strongly supported direct achievement: if holding the block, put it down.
+  ; Generalizes because Putdown always achieves on-table for the held block.
+  (:method m-make-on-table-from-holding
+    :parameters (?block - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (and
+      (holding ?block)
+    )
+    :ordered-subtasks (and
+      (Putdown ?block)
+    )
+  )
+
+  ; Strongly supported recursive strategy: if block sits on another block, unstack then put down.
+  ; This is a standard lifted decomposition for making any supported block end up on the table.
+  (:method m-make-on-table-from-stack
+    :parameters (?block - block
+                 ?support - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (and
+      (on ?block ?support)
+      (clear ?block)
+      (hand-empty)
+      (not (= ?block ?support))
+    )
+    :ordered-subtasks (and
+      (Unstack ?block ?support)
+      (Putdown ?block)
+    )
+  )
+
+  ; Plausible generalization: if the block is buried, first clear it, then make it on-table.
+  ; Motivated by primitive preconditions requiring clear(?block) before Pickup/Unstack.
+  (:method m-make-on-table-via-clear
+    :parameters (?block - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (and
+      (not (clear ?block))
+    )
+    :ordered-subtasks (and
+      (t-Clear ?block)
+      (t-Make-On-Table ?block)
+    )
+  )
+
+  ; Strongly supported no-op achievement: desired on-relation already holds.
+  (:method m-make-on-already
+    :parameters (?above - block
+                 ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and
+      (on ?above ?below)
+      (not (= ?above ?below))
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; Strongly supported direct stacking: if above is held and below is clear, stack immediately.
+  (:method m-make-on-direct-stack
+    :parameters (?above - block
+                 ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and
+      (holding ?above)
+      (clear ?below)
+      (not (= ?above ?below))
+    )
+    :ordered-subtasks (and
+      (Stack ?above ?below)
+    )
+  )
+
+  ; Strongly supported recursive plan: clear destination, obtain the upper block in hand, then stack.
+  ; This generalizes to arbitrary instances because Stack needs holding(?above) and clear(?below).
+  (:method m-make-on-general
+    :parameters (?above - block
+                 ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and
+      (not (= ?above ?below))
+    )
+    :ordered-subtasks (and
+      (t-Clear ?below)
+      (t-Hold ?above)
+      (Stack ?above ?below)
+    )
+  )
+
+  ; Strongly supported no-op: if block is already clear, no decomposition needed.
+  (:method m-clear-already
+    :parameters (?block - block)
+    :task (t-Clear ?block)
+    :precondition (and
+      (clear ?block)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; Plausible recursive clearing strategy: remove the top block by making it on-table, then continue.
+  ; Motivated by repeated unstack/putdown patterns common in blocksworld and by action preconditions.
+  (:method m-clear-by-removing-top
+    :parameters (?block - block
+                 ?top - block)
+    :task (t-Clear ?block)
+    :precondition (and
+      (on ?top ?block)
+      (clear ?top)
+      (not (= ?top ?block))
+    )
+    :ordered-subtasks (and
+      (t-Make-On-Table ?top)
+      (t-Clear ?block)
+    )
+  )
+
+  ; Strongly supported no-op for holdability: if already holding, task is complete.
+  (:method m-hold-already
+    :parameters (?block - block)
+    :task (t-Hold ?block)
+    :precondition (and
+      (holding ?block)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; Strongly supported direct pickup: if clear on table with empty hand, pick up.
+  (:method m-hold-pickup
+    :parameters (?block - block)
+    :task (t-Hold ?block)
+    :precondition (and
+      (on-table ?block)
+      (clear ?block)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Pickup ?block)
+    )
+  )
+
+  ; Strongly supported direct unstack: if clear on another block with empty hand, unstack.
+  (:method m-hold-unstack
+    :parameters (?block - block
+                 ?support - block)
+    :task (t-Hold ?block)
+    :precondition (and
+      (on ?block ?support)
+      (clear ?block)
+      (hand-empty)
+      (not (= ?block ?support))
+    )
+    :ordered-subtasks (and
+      (Unstack ?block ?support)
+    )
+  )
+
+  ; Plausible generalization: if target block is not clear, clear it first, then hold it.
+  (:method m-hold-via-clear
+    :parameters (?block - block)
+    :task (t-Hold ?block)
+    :precondition (and
+      (not (clear ?block))
+    )
+    :ordered-subtasks (and
+      (t-Clear ?block)
+      (t-Hold ?block)
+    )
+  )
+
+  (:action Pickup
+    :parameters
+    (
+      ?b - block
+    )
+    :precondition
+    (and
+      (on-table ?b)
+      (clear ?b)
+      (hand-empty)
+    )
+    :effect
+    (and
+      (not (on-table ?b))
+      (not (clear ?b))
+      (not (hand-empty))
+      (holding ?b)
+    )
+  )
+
+  (:action Putdown
+    :parameters
+    (
+      ?b - block
+    )
+    :precondition
+    (and
+      (holding ?b)
+    )
+    :effect
+    (and
+      (not (holding ?b))
+      (hand-empty)
+      (on-table ?b)
+      (clear ?b)
+    )
+  )
+
+  (:action Unstack
+    :parameters
+    (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    (and
+      (on ?b1 ?b2)
+      (clear ?b1)
+      (hand-empty)
+    )
+    :effect
+    (and
+      (not (on ?b1 ?b2))
+      (not (clear ?b1))
+      (not (hand-empty))
+      (clear ?b2)
+      (holding ?b1)
+    )
+  )
+
+  (:action Stack
+    :parameters
+    (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    (and
+      (holding ?b1)
+      (clear ?b2)
+    )
+    :effect
+    (and
+      (not (holding ?b1))
+      (not (clear ?b2))
+      (hand-empty)
+      (on ?b1 ?b2)
+      (clear ?b1)
+    )
+  )
+)

@@ -1,0 +1,280 @@
+(define (domain Blocks4)
+  (:requirements :hierarchy :strips :typing :equality)
+
+  (:types block)
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  (:task root_move_to_table ; strongly-supported: many demos remove a top block and place it on an empty stack/table location
+    :parameters (?b - block)
+  )
+
+  (:task root_stack_blocks ; strongly-supported: all demos repeatedly build taller towers by placing one clear block on another clear block
+    :parameters (?top - block ?bottom - block)
+  )
+
+  (:task root_transfer_tower ; plausible generalisation from demos that relocate several top blocks one-by-one to another stack
+    :parameters (?b - block ?support - block)
+  )
+
+  (:task clear_top_for_transfer ; strongly-supported intermediate abstraction: observed before every moved non-top target/support becomes usable
+    :parameters (?b - block)
+  )
+
+  (:task make_on ; strongly-supported intermediate abstraction: generic goal of achieving (on ?x ?y) across demonstrations
+    :parameters (?x - block ?y - block)
+  )
+
+  (:task make_on_table ; strongly-supported intermediate abstraction: generic goal of achieving (on-table ?x)
+    :parameters (?x - block)
+  )
+
+  (:method root_move_to_table_direct
+    :parameters (?b - block)
+    :task (root_move_to_table ?b)
+    :precondition (and
+      (on-table ?b)
+    )
+    :ordered-subtasks (and
+    )
+  )
+
+  (:method root_move_to_table_via_unstack_putdown
+    :parameters (?b - block ?under - block)
+    :task (root_move_to_table ?b)
+    :precondition (and
+      (on ?b ?under)
+      (clear ?b)
+      (hand-empty)
+      (not (= ?b ?under))
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?under) ; strongly-supported: many observed moves start by lifting a clear top block off another block
+      (Putdown ?b) ; strongly-supported: several demos place the removed block onto a free table position
+    )
+  )
+
+  (:method root_move_to_table_from_table_noop
+    :parameters (?b - block)
+    :task (make_on_table ?b)
+    :precondition (and
+      (on-table ?b)
+    )
+    :ordered-subtasks (and
+    )
+  )
+
+  (:method root_move_to_table_from_stack
+    :parameters (?b - block ?under - block)
+    :task (make_on_table ?b)
+    :precondition (and
+      (on ?b ?under)
+      (clear ?b)
+      (hand-empty)
+      (not (= ?b ?under))
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?under) ; strongly-supported by all examples where an upper block is detached
+      (Putdown ?b) ; strongly-supported by examples creating separate singleton stacks
+    )
+  )
+
+  (:method clear_top_for_transfer_already_clear
+    :parameters (?b - block)
+    :task (clear_top_for_transfer ?b)
+    :precondition (and
+      (clear ?b)
+    )
+    :ordered-subtasks (and
+    )
+  )
+
+  (:method make_on_already
+    :parameters (?x - block ?y - block)
+    :task (make_on ?x ?y)
+    :precondition (and
+      (on ?x ?y)
+    )
+    :ordered-subtasks (and
+    )
+  )
+
+  (:method make_on_from_table
+    :parameters (?x - block ?y - block)
+    :task (make_on ?x ?y)
+    :precondition (and
+      (on-table ?x)
+      (clear ?x)
+      (clear ?y)
+      (hand-empty)
+      (not (= ?x ?y))
+    )
+    :ordered-subtasks (and
+      (Pickup ?x) ; strongly-supported: used whenever a clear singleton is moved onto another clear support
+      (Stack ?x ?y) ; strongly-supported: final constructive move in every tower-building segment
+    )
+  )
+
+  (:method make_on_from_stack
+    :parameters (?x - block ?y - block ?z - block)
+    :task (make_on ?x ?y)
+    :precondition (and
+      (on ?x ?z)
+      (clear ?x)
+      (clear ?y)
+      (hand-empty)
+      (not (= ?x ?y))
+      (not (= ?x ?z))
+      (not (= ?y ?z))
+    )
+    :ordered-subtasks (and
+      (Unstack ?x ?z) ; strongly-supported: observed when relocating a top block from one tower onto another
+      (Stack ?x ?y) ; strongly-supported: same lifted pattern regardless of object identities
+    )
+  )
+
+  (:method root_stack_blocks_direct
+    :parameters (?top - block ?bottom - block)
+    :task (root_stack_blocks ?top ?bottom)
+    :precondition (and
+      (on ?top ?bottom)
+      (not (= ?top ?bottom))
+    )
+    :ordered-subtasks (and
+    )
+  )
+
+  (:method root_stack_blocks_simple
+    :parameters (?top - block ?bottom - block)
+    :task (root_stack_blocks ?top ?bottom)
+    :precondition (and
+      (clear ?top)
+      (clear ?bottom)
+      (hand-empty)
+      (not (= ?top ?bottom))
+    )
+    :ordered-subtasks (and
+      (make_on ?top ?bottom) ; strongly-supported: many demos just require moving a currently clear block onto a clear destination
+    )
+  )
+
+  (:method root_transfer_tower_simple
+    :parameters (?b - block ?support - block)
+    :task (root_transfer_tower ?b ?support)
+    :precondition (and
+      (clear ?b)
+      (clear ?support)
+      (hand-empty)
+      (not (= ?b ?support))
+    )
+    :ordered-subtasks (and
+      (make_on ?b ?support) ; strongly-supported base case: transfer single clear block to clear destination
+    )
+  )
+
+  (:method root_transfer_tower_recursive
+    :parameters (?b - block ?support - block ?above - block)
+    :task (root_transfer_tower ?b ?support)
+    :precondition (and
+      (on ?above ?b)
+      (clear ?above)
+      (clear ?support)
+      (hand-empty)
+      (not (= ?b ?support))
+      (not (= ?above ?b))
+      (not (= ?above ?support))
+    )
+    :ordered-subtasks (and
+      (root_move_to_table ?above) ; strongly-supported: demos repeatedly peel off obstructing top blocks to temporary table locations
+      (root_transfer_tower ?b ?support) ; plausible but well-motivated recursive generalisation: after clearing, continue transfer of exposed sub-tower root
+      (root_stack_blocks ?above ?b) ; plausible recursive rebuild step seen when moved-away blocks are later restacked over transferred supports
+    )
+  )
+
+  (:action Pickup
+    :parameters
+    (
+      ?b - block
+    )
+    :precondition
+    ( and
+      ( on-table ?b )
+      ( clear ?b )
+      ( hand-empty )
+    )
+    :effect
+    ( and
+      ( not ( on-table ?b ) )
+      ( not ( clear ?b ) )
+      ( not ( hand-empty ) )
+      ( holding ?b )
+    )
+  )
+
+  (:action Putdown
+    :parameters
+    (
+      ?b - block
+    )
+    :precondition
+    ( and
+      ( holding ?b )
+    )
+    :effect
+    ( and
+      ( not ( holding ?b ) )
+      ( hand-empty )
+      ( on-table ?b )
+      ( clear ?b )
+    )
+  )
+
+  (:action Unstack
+    :parameters
+    (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    ( and
+      ( on ?b1 ?b2 )
+      ( clear ?b1 )
+      ( hand-empty )
+    )
+    :effect
+    ( and
+      ( not ( on ?b1 ?b2 ) )
+      ( not ( clear ?b1 ) )
+      ( not ( hand-empty ) )
+      ( clear ?b2 )
+      ( holding ?b1 )
+    )
+  )
+
+  (:action Stack
+    :parameters
+    (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    ( and
+      ( holding ?b1 )
+      ( clear ?b2 )
+    )
+    :effect
+    ( and
+      ( not ( holding ?b1 ) )
+      ( not ( clear ?b2 ) )
+      ( hand-empty )
+      ( on ?b1 ?b2 )
+      ( clear ?b1 )
+    )
+  )
+)

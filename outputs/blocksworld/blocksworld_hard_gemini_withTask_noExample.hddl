@@ -1,0 +1,220 @@
+(define (domain Blocks4)
+  (:requirements :hierarchy :strips :typing :equality :negative-preconditions)
+  
+  (:types 
+    block
+  )
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  ; -----------------------------------------------------------------------
+  ; TASKS
+  ; -----------------------------------------------------------------------
+
+  (:task t-Make-On-Table ; ROOT TASK
+    :parameters (?block - block)
+  )
+
+  (:task t-Make-On ; ROOT TASK
+    :parameters (?above - block ?below - block)
+  )
+
+  (:task t-Clear
+    :parameters (?b - block)
+  )
+
+  (:task t-Empty-Hand
+    :parameters ()
+  )
+
+  (:task t-Move-Cleared-To-Table
+    :parameters (?b - block)
+  )
+
+  (:task t-Move-Cleared
+    :parameters (?above - block ?below - block)
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS
+  ; -----------------------------------------------------------------------
+
+  ; Methods for t-Empty-Hand
+  ; Assures the gripper is free before picking up a new block. 
+  ; Plausible generalization: ensures basic robotic safety and enables recursive block clearing.
+  (:method m-hand-empty-already
+    :parameters ()
+    :task (t-Empty-Hand)
+    :precondition (hand-empty)
+    :ordered-subtasks ()
+  )
+
+  (:method m-empty-hand-putdown
+    :parameters (?b - block)
+    :task (t-Empty-Hand)
+    :precondition (holding ?b)
+    :ordered-subtasks (and
+      (Putdown ?b)
+    )
+  )
+
+  ; Methods for t-Clear
+  ; Recursively clears blocks until the target block is clear. 
+  ; Inference drawn from top-down unstacking sequence shown in 2_7.mp4.
+  (:method m-clear-already
+    :parameters (?b - block)
+    :task (t-Clear ?b)
+    :precondition (clear ?b)
+    :ordered-subtasks ()
+  )
+
+  (:method m-clear-unstack
+    :parameters (?b - block ?top - block)
+    :task (t-Clear ?b)
+    :precondition (on ?top ?b)
+    :ordered-subtasks (and
+      (t-Clear ?top)
+      (t-Make-On-Table ?top)
+    )
+  )
+
+  (:method m-clear-holding
+    :parameters (?b - block)
+    :task (t-Clear ?b)
+    :precondition (holding ?b)
+    :ordered-subtasks (and
+      (t-Empty-Hand)
+    )
+  )
+
+  ; Methods for t-Make-On-Table (ROOT TASK)
+  ; Motivated by placing blocks on the table, e.g., moving block D in 2_6.mp4.
+  ; Abstracted to apply dynamically depending on whether the block is held, on table, or on another block.
+  (:method m-make-on-table-already
+    :parameters (?block - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (on-table ?block)
+    :ordered-subtasks ()
+  )
+
+  (:method m-make-on-table-holding
+    :parameters (?block - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (holding ?block)
+    :ordered-subtasks (and
+      (Putdown ?block)
+    )
+  )
+
+  (:method m-make-on-table-not-on-table
+    :parameters (?block - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (and (not (on-table ?block)) (not (holding ?block)))
+    :ordered-subtasks (and
+      (t-Clear ?block)
+      (t-Move-Cleared-To-Table ?block)
+    )
+  )
+
+  ; Methods for t-Move-Cleared-To-Table
+  ; Helper task to avoid early binding of ?under. Supported by the physical unstack operations observed.
+  (:method m-move-cleared-to-table-from-block
+    :parameters (?b - block ?under - block)
+    :task (t-Move-Cleared-To-Table ?b)
+    :precondition (and (on ?b ?under) (clear ?b))
+    :ordered-subtasks (and
+      (t-Empty-Hand)
+      (Unstack ?b ?under)
+      (Putdown ?b)
+    )
+  )
+
+  ; Methods for t-Make-On (ROOT TASK)
+  ; Motivated by stacking blocks (e.g., H on D in 2_6.mp4, or sequentially building a large tower in 2_7.mp4).
+  (:method m-make-on-already
+    :parameters (?above - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (on ?above ?below)
+    :ordered-subtasks ()
+  )
+
+  (:method m-make-on-holding
+    :parameters (?above - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (holding ?above)
+    :ordered-subtasks (and
+      (t-Empty-Hand)
+      (t-Make-On ?above ?below)
+    )
+  )
+
+  (:method m-make-on-different
+    :parameters (?above - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and (not (on ?above ?below)) (not (holding ?above)) (not (= ?above ?below)))
+    :ordered-subtasks (and
+      (t-Clear ?above)
+      (t-Clear ?below)
+      (t-Move-Cleared ?above ?below)
+    )
+  )
+
+  ; Methods for t-Move-Cleared
+  ; Late binding of physical movement from table or another block to destination.
+  (:method m-move-cleared-from-table
+    :parameters (?above - block ?below - block)
+    :task (t-Move-Cleared ?above ?below)
+    :precondition (and (on-table ?above) (clear ?above) (clear ?below))
+    :ordered-subtasks (and
+      (t-Empty-Hand)
+      (Pickup ?above)
+      (Stack ?above ?below)
+    )
+  )
+
+  (:method m-move-cleared-from-block
+    :parameters (?above - block ?below - block ?under - block)
+    :task (t-Move-Cleared ?above ?below)
+    :precondition (and (on ?above ?under) (clear ?above) (clear ?below))
+    :ordered-subtasks (and
+      (t-Empty-Hand)
+      (Unstack ?above ?under)
+      (Stack ?above ?below)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; ACTIONS
+  ; -----------------------------------------------------------------------
+
+  (:action Pickup
+    :parameters (?b - block)
+    :precondition (and (on-table ?b) (clear ?b) (hand-empty))
+    :effect (and (not (on-table ?b)) (not (clear ?b)) (not (hand-empty)) (holding ?b))
+  )
+
+  (:action Putdown
+    :parameters (?b - block)
+    :precondition (and (holding ?b))
+    :effect (and (not (holding ?b)) (hand-empty) (on-table ?b) (clear ?b))
+  )
+
+  (:action Unstack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and (on ?b1 ?b2) (clear ?b1) (hand-empty))
+    :effect (and (not (on ?b1 ?b2)) (not (clear ?b1)) (not (hand-empty)) (clear ?b2) (holding ?b1))
+  )
+
+  (:action Stack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and (holding ?b1) (clear ?b2))
+    :effect (and (not (holding ?b1)) (not (clear ?b2)) (hand-empty) (on ?b1 ?b2) (clear ?b1))
+  )
+
+)

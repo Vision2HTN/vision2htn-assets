@@ -1,0 +1,134 @@
+(define (domain Blocks4)
+  (:requirements :hierarchy :strips :typing :equality :negative-preconditions)
+
+  (:types
+    block
+  )
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  (:task t-Make-On-Table
+    :parameters (?block - block)
+  )
+
+  (:task t-Make-On
+    :parameters (?above - block ?below - block)
+  )
+
+  (:task t-Clear
+    :parameters (?b - block)
+  )
+
+  (:method m-Clear-Already
+    :parameters (?b - block)
+    :task (t-Clear ?b)
+    :precondition (clear ?b)
+    :ordered-subtasks ()
+  )
+
+  (:method m-Clear-Block
+    :parameters (?b - block ?top - block)
+    :task (t-Clear ?b)
+    :precondition (on ?top ?b)
+    :ordered-subtasks (and
+      (t-Clear ?top)
+      (t-Make-On-Table ?top)
+    )
+  )
+
+  (:method m-Make-On-Table-Already
+    :parameters (?block - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (on-table ?block)
+    :ordered-subtasks ()
+  )
+
+  (:method m-Make-On-Table-Action
+    :parameters (?block - block ?under - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (and (on ?block ?under) (clear ?block) (hand-empty))
+    :ordered-subtasks (and
+      (Unstack ?block ?under)
+      (Putdown ?block)
+    )
+  )
+
+  (:method m-Make-On-Table-Need-Clear
+    :parameters (?block - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (and (not (on-table ?block)) (not (clear ?block)))
+    :ordered-subtasks (and
+      (t-Clear ?block)
+      (t-Make-On-Table ?block)
+    )
+  )
+
+  (:method m-Make-On-Already
+    :parameters (?above - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (on ?above ?below)
+    :ordered-subtasks ()
+  )
+
+  (:method m-Make-On-Action-From-Table
+    :parameters (?above - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and (on-table ?above) (clear ?above) (clear ?below) (hand-empty))
+    :ordered-subtasks (and
+      (Pickup ?above)
+      (Stack ?above ?below)
+    )
+  )
+
+  (:method m-Make-On-Action-From-Block
+    :parameters (?above - block ?below - block ?other - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and (on ?above ?other) (clear ?above) (clear ?below) (hand-empty) (not (= ?above ?below)))
+    :ordered-subtasks (and
+      (Unstack ?above ?other)
+      (Stack ?above ?below)
+    )
+  )
+
+  (:method m-Make-On-Need-Clear
+    :parameters (?above - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and (not (on ?above ?below)) (or (not (clear ?above)) (not (clear ?below))))
+    :ordered-subtasks (and
+      (t-Clear ?above)
+      (t-Clear ?below)
+      (t-Make-On ?above ?below)
+    )
+  )
+
+  (:action Pickup
+    :parameters (?b - block)
+    :precondition (and (on-table ?b) (clear ?b) (hand-empty))
+    :effect (and (not (on-table ?b)) (not (clear ?b)) (not (hand-empty)) (holding ?b))
+  )
+
+  (:action Putdown
+    :parameters (?b - block)
+    :precondition (and (holding ?b))
+    :effect (and (not (holding ?b)) (hand-empty) (on-table ?b) (clear ?b))
+  )
+
+  (:action Unstack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and (on ?b1 ?b2) (clear ?b1) (hand-empty))
+    :effect (and (not (on ?b1 ?b2)) (not (clear ?b1)) (not (hand-empty)) (clear ?b2) (holding ?b1))
+  )
+
+  (:action Stack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and (holding ?b1) (clear ?b2))
+    :effect (and (not (holding ?b1)) (not (clear ?b2)) (hand-empty) (on ?b1 ?b2) (clear ?b1))
+  )
+
+)

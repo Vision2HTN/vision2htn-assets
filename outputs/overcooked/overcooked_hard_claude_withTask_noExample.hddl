@@ -1,0 +1,605 @@
+(define (domain overcooked)
+
+  (:requirements :hierarchy :strips :typing)
+
+  (:types
+    location
+    status count
+    agent pile pot delivery - locatable
+    ingredient dish bowl marker - item
+    agent table - holdable
+  )
+
+  (:predicates
+    (at ?x - locatable ?l - location)
+    (connect ?from ?to - location)
+    (reachable ?table - table ?from - location)
+    (holding ?a - holdable ?i - item)
+    (contains ?p - pile ?i - item)
+    (increment ?n1 ?n2 - count)
+    (recipe ?d - dish ?i1 - ingredient ?n1 - count ?i2 - ingredient ?n2 - count)
+    (in-pot ?p - pot ?i - ingredient ?n - count)
+    (pot-status ?p - pot ?s - status)
+    (cooking-progress ?s1 ?s2 - status)
+    (finished-status ?s - status)
+    (idle-status ?s - status)
+    (is-zero ?n - count)
+    (label-pot-dish ?p - pot ?d - dish)
+    (delivered ?d - dish)
+  )
+
+  ; ROOT TASK: top-level goal to serve a dish
+  (:task t-serve-dish
+    :parameters (?dish - dish)
+  )
+
+  ; Subtask: fulfill the required count of an ingredient in a pot
+  (:task t-fulfill-ingredient
+    :parameters (?pot - pot ?i - ingredient ?count - count)
+  )
+
+  ; Subtask: add exactly one unit of an ingredient to a pot
+  (:task t-add-one-ingredient
+    :parameters (?pot - pot ?i - ingredient ?ncurrent ?nnext - count)
+  )
+
+  ; Subtask: cook a pot until finished producing a dish
+  (:task t-cook-dish
+    :parameters (?pot - pot ?dish - dish)
+  )
+
+  ; Subtask: navigate agent to a location
+  (:task t-get-to
+    :parameters (?a - agent ?l - location)
+  )
+
+  ; Subtask: have agent acquire a specific item
+  (:task t-get-item
+    :parameters (?a - agent ?item - item)
+  )
+
+  ; Subtask: pour finished pot contents into bowl to get dish
+  (:task t-pour-dish
+    :parameters (?a - agent ?pot - pot ?dish - dish ?b - bowl)
+  )
+
+  ; Subtask: deliver a held dish to the delivery zone
+  (:task t-deliver-dish
+    :parameters (?a - agent ?dish - dish ?del - delivery)
+  )
+
+  ; Subtask: put an ingredient into a pot (agent must be at pot location holding ingredient)
+  (:task t-put-ingredient-in-pot
+    :parameters (?a - agent ?pot - pot ?i - ingredient ?n1 ?n2 - count)
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for t-serve-dish
+  ; Evidence: video shows full pipeline: get ingredients -> pot -> cook -> pour -> deliver
+  ; Generalises: any two-ingredient recipe with one pot and one delivery zone
+  ; -----------------------------------------------------------------------
+
+  ; Method: serve a two-ingredient dish using one agent for all steps
+  ; Evidence: blue agent picks onion, puts in pot; green agent picks tomato, puts in pot; cook; pour; deliver
+  ; Generalises: any recipe ?d requiring ?i1 x ?n1 and ?i2 x ?n2
+  (:method m-serve-dish-single-agent
+    :parameters (
+      ?dish - dish
+      ?a - agent
+      ?pot - pot
+      ?i1 - ingredient ?n1 - count
+      ?i2 - ingredient ?n2 - count
+      ?zero - count
+      ?del - delivery
+      ?b - bowl
+      ?finish - status
+    )
+    :task (t-serve-dish ?dish)
+    :precondition (and
+      (recipe ?dish ?i1 ?n1 ?i2 ?n2)
+      (is-zero ?zero)
+      (finished-status ?finish)
+    )
+    :ordered-subtasks (and
+      (t-fulfill-ingredient ?pot ?i1 ?n1)
+      (t-fulfill-ingredient ?pot ?i2 ?n2)
+      (t-cook-dish ?pot ?dish)
+      (t-pour-dish ?a ?pot ?dish ?b)
+      (t-deliver-dish ?a ?dish ?del)
+    )
+  )
+
+  ; Method: serve a two-ingredient dish using two agents collaboratively
+  ; Evidence: blue agent handles onion side, green agent handles tomato side, both contribute to pot
+  ; Generalises: two-agent collaboration where each agent handles one ingredient type
+  ; TENTATIVE: partial ordering between agents inferred from video structure
+  (:method m-serve-dish-two-agents
+    :parameters (
+      ?dish - dish
+      ?a1 - agent ?a2 - agent
+      ?pot - pot
+      ?i1 - ingredient ?n1 - count
+      ?i2 - ingredient ?n2 - count
+      ?zero - count
+      ?del - delivery
+      ?b - bowl
+      ?finish - status
+    )
+    :task (t-serve-dish ?dish)
+    :precondition (and
+      (recipe ?dish ?i1 ?n1 ?i2 ?n2)
+      (is-zero ?zero)
+      (finished-status ?finish)
+    )
+    :ordered-subtasks (and
+      (t-fulfill-ingredient ?pot ?i1 ?n1)
+      (t-fulfill-ingredient ?pot ?i2 ?n2)
+      (t-cook-dish ?pot ?dish)
+      (t-pour-dish ?a1 ?pot ?dish ?b)
+      (t-deliver-dish ?a1 ?dish ?del)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for t-fulfill-ingredient
+  ; Evidence: agents repeatedly pick onion/tomato from piles and add to pot
+  ; Generalises: any ingredient needing count n added to any pot
+  ; -----------------------------------------------------------------------
+
+  ; Base case: ingredient already at required count
+  (:method m-fulfill-ingredient-done
+    :parameters (
+      ?pot - pot
+      ?i - ingredient
+      ?count - count
+    )
+    :task (t-fulfill-ingredient ?pot ?i ?count)
+    :precondition (and
+      (in-pot ?pot ?i ?count)
+    )
+    :ordered-subtasks (and
+    )
+  )
+
+  ; Recursive case: add one more unit then recurse
+  ; Evidence: multiple onions/tomatoes added one at a time
+  (:method m-fulfill-ingredient-recurse
+    :parameters (
+      ?pot - pot
+      ?i - ingredient
+      ?count - count
+      ?ncurrent - count
+      ?nnext - count
+    )
+    :task (t-fulfill-ingredient ?pot ?i ?count)
+    :precondition (and
+      (in-pot ?pot ?i ?ncurrent)
+      (increment ?ncurrent ?nnext)
+    )
+    :ordered-subtasks (and
+      (t-add-one-ingredient ?pot ?i ?ncurrent ?nnext)
+      (t-fulfill-ingredient ?pot ?i ?count)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for t-add-one-ingredient
+  ; Evidence: agent walks to pile, picks ingredient, walks to pot, adds it
+  ; Generalises: any agent picking any ingredient from any pile and adding to any pot
+  ; -----------------------------------------------------------------------
+
+  (:method m-add-one-ingredient-via-pile
+    :parameters (
+      ?pot - pot
+      ?i - ingredient
+      ?ncurrent ?nnext - count
+      ?a - agent
+      ?pile - pile
+      ?lpile - location
+      ?lpot - location
+      ?free - marker
+      ?idle - status
+    )
+    :task (t-add-one-ingredient ?pot ?i ?ncurrent ?nnext)
+    :precondition (and
+      (at ?pile ?lpile)
+      (contains ?pile ?i)
+      (at ?pot ?lpot)
+      (idle-status ?idle)
+      (pot-status ?pot ?idle)
+      (in-pot ?pot ?i ?ncurrent)
+      (increment ?ncurrent ?nnext)
+      (holding ?a ?free)
+    )
+    :ordered-subtasks (and
+      (t-get-to ?a ?lpile)
+      (pick-up-from-pile ?a ?pile ?lpile ?i ?free)
+      (t-get-to ?a ?lpot)
+      (add-to-pot ?a ?pot ?lpot ?i ?ncurrent ?nnext ?free ?idle)
+    )
+  )
+
+  ; Variant: ingredient picked from table instead of pile
+  ; TENTATIVE: not directly shown but domain supports pick-up-from-table
+  (:method m-add-one-ingredient-via-table
+    :parameters (
+      ?pot - pot
+      ?i - ingredient
+      ?ncurrent ?nnext - count
+      ?a - agent
+      ?table - table
+      ?ltable - location
+      ?lpot - location
+      ?free - marker
+      ?idle - status
+    )
+    :task (t-add-one-ingredient ?pot ?i ?ncurrent ?nnext)
+    :precondition (and
+      (reachable ?table ?ltable)
+      (holding ?table ?i)
+      (at ?pot ?lpot)
+      (idle-status ?idle)
+      (pot-status ?pot ?idle)
+      (in-pot ?pot ?i ?ncurrent)
+      (increment ?ncurrent ?nnext)
+      (holding ?a ?free)
+    )
+    :ordered-subtasks (and
+      (t-get-to ?a ?ltable)
+      (pick-up-from-table ?a ?table ?ltable ?i ?free)
+      (t-get-to ?a ?lpot)
+      (add-to-pot ?a ?pot ?lpot ?i ?ncurrent ?nnext ?free ?idle)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for t-cook-dish
+  ; Evidence: cooking timer shown counting down after both ingredients added
+  ; Generalises: any pot cooking any dish through all cooking progress states
+  ; -----------------------------------------------------------------------
+
+  ; Method: start cooking then advance through all cooking states to finish
+  (:method m-cook-dish-start-and-finish
+    :parameters (
+      ?pot - pot
+      ?dish - dish
+      ?i1 ?i2 - ingredient
+      ?n1 ?n2 ?zero - count
+      ?a - agent
+      ?lpot - location
+      ?free - marker
+      ?idle ?s1 ?s2 ?finish - status
+    )
+    :task (t-cook-dish ?pot ?dish)
+    :precondition (and
+      (recipe ?dish ?i1 ?n1 ?i2 ?n2)
+      (at ?pot ?lpot)
+      (pot-status ?pot ?idle)
+      (idle-status ?idle)
+      (cooking-progress ?idle ?s1)
+      (cooking-progress ?s1 ?s2)
+      (cooking-progress ?s2 ?finish)
+      (finished-status ?finish)
+      (in-pot ?pot ?i1 ?n1)
+      (in-pot ?pot ?i2 ?n2)
+      (is-zero ?zero)
+      (holding ?a ?free)
+    )
+    :ordered-subtasks (and
+      (t-get-to ?a ?lpot)
+      (start-cook ?a ?pot ?lpot ?dish ?i1 ?i2 ?n1 ?n2 ?zero ?free ?idle ?s1)
+      (cook ?pot ?s1 ?s2)
+      (cook ?pot ?s2 ?finish)
+    )
+  )
+
+  ; Simpler two-state cooking progression variant
+  ; TENTATIVE: for domains where idle->start->finish with only two cook steps
+  (:method m-cook-dish-two-steps
+    :parameters (
+      ?pot - pot
+      ?dish - dish
+      ?i1 ?i2 - ingredient
+      ?n1 ?n2 ?zero - count
+      ?a - agent
+      ?lpot - location
+      ?free - marker
+      ?idle ?start ?finish - status
+    )
+    :task (t-cook-dish ?pot ?dish)
+    :precondition (and
+      (recipe ?dish ?i1 ?n1 ?i2 ?n2)
+      (at ?pot ?lpot)
+      (pot-status ?pot ?idle)
+      (idle-status ?idle)
+      (cooking-progress ?idle ?start)
+      (cooking-progress ?start ?finish)
+      (finished-status ?finish)
+      (in-pot ?pot ?i1 ?n1)
+      (in-pot ?pot ?i2 ?n2)
+      (is-zero ?zero)
+      (holding ?a ?free)
+    )
+    :ordered-subtasks (and
+      (t-get-to ?a ?lpot)
+      (start-cook ?a ?pot ?lpot ?dish ?i1 ?i2 ?n1 ?n2 ?zero ?free ?idle ?start)
+      (cook ?pot ?start ?finish)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for t-pour-dish
+  ; Evidence: agent picks up bowl, goes to pot, pours to get dish
+  ; Generalises: any agent, any finished pot, any dish, any bowl
+  ; -----------------------------------------------------------------------
+
+  (:method m-pour-dish-from-pot
+    :parameters (
+      ?a - agent
+      ?pot - pot
+      ?dish - dish
+      ?b - bowl
+      ?lpot - location
+      ?finish - status
+      ?idle - status
+    )
+    :task (t-pour-dish ?a ?pot ?dish ?b)
+    :precondition (and
+      (at ?pot ?lpot)
+      (pot-status ?pot ?finish)
+      (finished-status ?finish)
+      (idle-status ?idle)
+      (label-pot-dish ?pot ?dish)
+      (holding ?a ?b)
+    )
+    :ordered-subtasks (and
+      (t-get-to ?a ?lpot)
+      (pour-from-pot ?a ?pot ?lpot ?dish ?b ?finish ?idle)
+    )
+  )
+
+  ; Variant: agent must first pick up the bowl from a pile
+  ; Evidence: video shows agent collecting bowl before pouring
+  ; TENTATIVE: bowl source is pile or table depending on instance
+  (:method m-pour-dish-get-bowl-first
+    :parameters (
+      ?a - agent
+      ?pot - pot
+      ?dish - dish
+      ?b - bowl
+      ?pile - pile
+      ?lpile - location
+      ?lpot - location
+      ?finish - status
+      ?idle - status
+      ?free - marker
+    )
+    :task (t-pour-dish ?a ?pot ?dish ?b)
+    :precondition (and
+      (at ?pile ?lpile)
+      (contains ?pile ?b)
+      (at ?pot ?lpot)
+      (pot-status ?pot ?finish)
+      (finished-status ?finish)
+      (idle-status ?idle)
+      (label-pot-dish ?pot ?dish)
+      (holding ?a ?free)
+    )
+    :ordered-subtasks (and
+      (t-get-to ?a ?lpile)
+      (pick-up-from-pile ?a ?pile ?lpile ?b ?free)
+      (t-get-to ?a ?lpot)
+      (pour-from-pot ?a ?pot ?lpot ?dish ?b ?finish ?idle)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for t-deliver-dish
+  ; Evidence: agent walks to delivery zone and drops dish
+  ; Generalises: any agent, any dish, any delivery location
+  ; -----------------------------------------------------------------------
+
+  (:method m-deliver-dish-direct
+    :parameters (
+      ?a - agent
+      ?dish - dish
+      ?del - delivery
+      ?ldel - location
+      ?free - marker
+    )
+    :task (t-deliver-dish ?a ?dish ?del)
+    :precondition (and
+      (at ?del ?ldel)
+      (holding ?a ?dish)
+    )
+    :ordered-subtasks (and
+      (t-get-to ?a ?ldel)
+      (drop-off-to-delivery ?a ?del ?ldel ?dish ?free)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for t-get-to
+  ; Evidence: agents move through connected locations step by step
+  ; Generalises: any agent navigating from any location to any other reachable location
+  ; -----------------------------------------------------------------------
+
+  ; Base case: agent already at destination
+  (:method m-get-to-already-there
+    :parameters (?a - agent ?l - location)
+    :task (t-get-to ?a ?l)
+    :precondition (and
+      (at ?a ?l)
+    )
+    :ordered-subtasks (and
+    )
+  )
+
+  ; Recursive case: move one step then continue
+  ; Evidence: agents shown moving multiple tiles to reach ingredients/pot/delivery
+  (:method m-get-to-move-step
+    :parameters (
+      ?a - agent
+      ?l - location
+      ?from - location
+      ?via - location
+    )
+    :task (t-get-to ?a ?l)
+    :precondition (and
+      (at ?a ?from)
+      (connect ?from ?via)
+    )
+    :ordered-subtasks (and
+      (move ?a ?from ?via)
+      (t-get-to ?a ?l)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for t-get-item
+  ; Evidence: agents pick items from piles and occasionally tables
+  ; Generalises: any agent acquiring any item from any source
+  ; -----------------------------------------------------------------------
+
+  ; Agent already holding the item
+  (:method m-get-item-already-holding
+    :parameters (?a - agent ?item - item)
+    :task (t-get-item ?a ?item)
+    :precondition (and
+      (holding ?a ?item)
+    )
+    :ordered-subtasks (and
+    )
+  )
+
+  ; Pick item from pile
+  ; Evidence: onions and tomatoes picked from pile sources in video
+  (:method m-get-item-from-pile
+    :parameters (
+      ?a - agent
+      ?item - item
+      ?pile - pile
+      ?lpile - location
+      ?free - marker
+    )
+    :task (t-get-item ?a ?item)
+    :precondition (and
+      (at ?pile ?lpile)
+      (contains ?pile ?item)
+      (holding ?a ?free)
+    )
+    :ordered-subtasks (and
+      (t-get-to ?a ?lpile)
+      (pick-up-from-pile ?a ?pile ?lpile ?item ?free)
+    )
+  )
+
+  ; Pick item from table
+  ; TENTATIVE: generalises pick-up-from-table action present in domain
+  (:method m-get-item-from-table
+    :parameters (
+      ?a - agent
+      ?item - item
+      ?table - table
+      ?ltable - location
+      ?free - marker
+    )
+    :task (t-get-item ?a ?item)
+    :precondition (and
+      (reachable ?table ?ltable)
+      (holding ?table ?item)
+      (holding ?a ?free)
+    )
+    :ordered-subtasks (and
+      (t-get-to ?a ?ltable)
+      (pick-up-from-table ?a ?table ?ltable ?item ?free)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; ACTIONS (copied verbatim from PDDL domain)
+  ; -----------------------------------------------------------------------
+
+  (:action move
+    :parameters (?a - agent ?from ?to - location)
+    :precondition (and (at ?a ?from) (connect ?from ?to))
+    :effect (and (not (at ?a ?from)) (at ?a ?to))
+  )
+
+  (:action pick-up-from-pile
+    :parameters (?a - agent ?p - pile ?l - location ?item - item ?free - marker)
+    :precondition (and (at ?a ?l) (at ?p ?l) (holding ?a ?free) (contains ?p ?item))
+    :effect (and (not (holding ?a ?free)) (holding ?a ?item))
+  )
+
+  (:action pick-up-from-table
+    :parameters (?a - agent ?table - table ?l - location ?item - item ?free - marker)
+    :precondition (and (at ?a ?l) (reachable ?table ?l) (holding ?a ?free) (holding ?table ?item))
+    :effect (and (not (holding ?a ?free)) (holding ?a ?item) (not (holding ?table ?item)) (holding ?table ?free))
+  )
+
+  (:action drop-off-to-table
+    :parameters (?a - agent ?table - table ?l - location ?item - item ?free - marker)
+    :precondition (and (at ?a ?l) (reachable ?table ?l) (holding ?a ?item) (holding ?table ?free))
+    :effect (and (not (holding ?table ?free)) (holding ?a ?free) (holding ?table ?item) (not (holding ?a ?item)))
+  )
+
+  (:action add-to-pot
+    :parameters (?a - agent ?p - pot ?l - location ?i - ingredient ?n1 ?n2 - count ?free - marker ?idle - status)
+    :precondition (and
+      (at ?a ?l) (at ?p ?l) (holding ?a ?i)
+      (in-pot ?p ?i ?n1) (increment ?n1 ?n2)
+      (pot-status ?p ?idle)
+      (idle-status ?idle)
+    )
+    :effect (and
+      (not (holding ?a ?i)) (holding ?a ?free)
+      (not (in-pot ?p ?i ?n1)) (in-pot ?p ?i ?n2)
+    )
+  )
+
+  (:action start-cook
+    :parameters (?a - agent ?p - pot ?l - location ?d - dish ?i1 ?i2 - ingredient ?n1 ?n2 ?zero - count ?free - marker ?idle ?start - status)
+    :precondition (and
+      (at ?a ?l) (at ?p ?l) (holding ?a ?free)
+      (pot-status ?p ?idle) (cooking-progress ?idle ?start)
+      (in-pot ?p ?i1 ?n1) (in-pot ?p ?i2 ?n2)
+      (recipe ?d ?i1 ?n1 ?i2 ?n2)
+      (is-zero ?zero)
+    )
+    :effect (and
+      (not (pot-status ?p ?idle)) (pot-status ?p ?start)
+      (not (in-pot ?p ?i1 ?n1)) (not (in-pot ?p ?i2 ?n2))
+      (in-pot ?p ?i1 ?zero) (in-pot ?p ?i2 ?zero)
+      (label-pot-dish ?p ?d)
+    )
+  )
+
+  (:action cook
+    :parameters (?p - pot ?s1 ?s2 - status)
+    :precondition (and (pot-status ?p ?s1) (cooking-progress ?s1 ?s2))
+    :effect (and (not (pot-status ?p ?s1)) (pot-status ?p ?s2))
+  )
+
+  (:action pour-from-pot
+    :parameters (?a - agent ?p - pot ?l - location ?d - dish ?b - bowl ?finish ?idle - status)
+    :precondition (and
+      (at ?a ?l) (at ?p ?l) (holding ?a ?b)
+      (pot-status ?p ?finish) (finished-status ?finish)
+      (label-pot-dish ?p ?d)
+      (idle-status ?idle)
+    )
+    :effect (and
+      (not (holding ?a ?b)) (holding ?a ?d)
+      (not (pot-status ?p ?finish)) (pot-status ?p ?idle)
+      (not (label-pot-dish ?p ?d))
+    )
+  )
+
+  (:action drop-off-to-delivery
+    :parameters (?a - agent ?del - delivery ?l - location ?d - dish ?free - marker)
+    :precondition (and (at ?a ?l) (at ?del ?l) (holding ?a ?d))
+    :effect (and (not (holding ?a ?d)) (holding ?a ?free) (delivered ?d))
+  )
+
+)

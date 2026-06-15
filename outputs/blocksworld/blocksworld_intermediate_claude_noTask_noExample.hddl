@@ -1,0 +1,457 @@
+(define (domain Blocks4)
+
+  (:requirements :hierarchy :strips :typing :equality)
+
+  (:types block)
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  ; ROOT TASK: move a block to the table
+  (:task move-to-table
+    :parameters (?b - block)
+  )
+
+  ; ROOT TASK: move a block onto another block
+  (:task move-to-block
+    :parameters (?b - block ?dest - block)
+  )
+
+  ; ROOT TASK: build a stack in a given order (top to bottom: ?top on ?bottom)
+  ; Observed in all demos: final goal is always an ordered stack on one location
+  (:task build-tower
+    :parameters (?top - block ?bottom - block)
+  )
+
+  ; ROOT TASK: assemble a complete ordered stack of arbitrary height
+  ; generalises single-column stacking observed across all demonstrations
+  (:task make-stack
+    :parameters (?b - block ?base - block)
+  )
+
+  ; Subtask: ensure a block is clear (unstack everything above it if needed)
+  (:task ensure-clear
+    :parameters (?b - block)
+  )
+
+  ; Subtask: ensure a block is on the table and clear
+  (:task bring-to-table
+    :parameters (?b - block)
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for move-to-table
+  ; -----------------------------------------------------------------------
+
+  ; Case 1: block is already on table and clear -- no action needed
+  ; Observed: blocks left on table between moves in all demos
+  (:method move-to-table-already-there
+    :parameters (?b - block)
+    :task (move-to-table ?b)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; Case 2: block is on the table but not clear -- clear it first (tentative generalisation)
+  (:method move-to-table-clear-first
+    :parameters (?b - block ?above - block)
+    :task (move-to-table ?b)
+    :precondition (and
+      (on-table ?b)
+      (on ?above ?b)
+    )
+    :ordered-subtasks (and
+      (ensure-clear ?b)
+    )
+  )
+
+  ; Case 3: block is on another block -- unstack it and put it on table
+  ; Observed: e.g. in 1_10.mp4 G is unstacked from stack1 and moved
+  (:method move-to-table-from-block
+    :parameters (?b - block ?under - block)
+    :task (move-to-table ?b)
+    :precondition (and
+      (on ?b ?under)
+      (clear ?b)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?under)
+      (Putdown ?b)
+    )
+  )
+
+  ; Case 4: block is on another block but not clear -- clear then unstack
+  (:method move-to-table-from-block-uncleared
+    :parameters (?b - block ?under - block)
+    :task (move-to-table ?b)
+    :precondition (and
+      (on ?b ?under)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (ensure-clear ?b)
+      (Unstack ?b ?under)
+      (Putdown ?b)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for move-to-block
+  ; -----------------------------------------------------------------------
+
+  ; Case 1: source block is on table and clear, destination is clear
+  ; Observed: pickup from table then stack -- seen in 2_1, 2_2, 2_3, 2_5
+  (:method move-to-block-from-table
+    :parameters (?b - block ?dest - block)
+    :task (move-to-block ?b ?dest)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (clear ?dest)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Pickup ?b)
+      (Stack ?b ?dest)
+    )
+  )
+
+  ; Case 2: source block is on another block, clear; destination is clear
+  ; Observed: unstack then stack in 1_10, 1_9, 2_5
+  (:method move-to-block-from-block
+    :parameters (?b - block ?under - block ?dest - block)
+    :task (move-to-block ?b ?dest)
+    :precondition (and
+      (on ?b ?under)
+      (clear ?b)
+      (clear ?dest)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?under)
+      (Stack ?b ?dest)
+    )
+  )
+
+  ; Case 3: destination not clear -- clear it first then move
+  ; Observed implicitly: whenever target stack position must be freed
+  (:method move-to-block-clear-dest-first
+    :parameters (?b - block ?dest - block ?under - block)
+    :task (move-to-block ?b ?dest)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (on ?under ?dest)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (ensure-clear ?dest)
+      (Pickup ?b)
+      (Stack ?b ?dest)
+    )
+  )
+
+  ; Case 4: both source on another block and dest not clear (tentative)
+  (:method move-to-block-both-uncleared
+    :parameters (?b - block ?under - block ?dest - block)
+    :task (move-to-block ?b ?dest)
+    :precondition (and
+      (on ?b ?under)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (ensure-clear ?b)
+      (ensure-clear ?dest)
+      (Unstack ?b ?under)
+      (Stack ?b ?dest)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for ensure-clear
+  ; -----------------------------------------------------------------------
+
+  ; Case 1: block is already clear
+  ; Observed: many blocks start clear in all demos
+  (:method ensure-clear-already-clear
+    :parameters (?b - block)
+    :task (ensure-clear ?b)
+    :precondition (and
+      (clear ?b)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; Case 2: one block on top -- move that block to table
+  ; Observed: single block removed from top of stack throughout all demos
+  (:method ensure-clear-one-above
+    :parameters (?b - block ?above - block)
+    :task (ensure-clear ?b)
+    :precondition (and
+      (on ?above ?b)
+      (clear ?above)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Unstack ?above ?b)
+      (Putdown ?above)
+    )
+  )
+
+  ; Case 3: multiple blocks above -- recursively clear above first (generalisation)
+  (:method ensure-clear-recursive
+    :parameters (?b - block ?above - block)
+    :task (ensure-clear ?b)
+    :precondition (and
+      (on ?above ?b)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (ensure-clear ?above)
+      (Unstack ?above ?b)
+      (Putdown ?above)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for bring-to-table
+  ; -----------------------------------------------------------------------
+
+  ; Case 1: already on table and clear
+  (:method bring-to-table-already
+    :parameters (?b - block)
+    :task (bring-to-table ?b)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; Case 2: on another block, clear
+  ; Observed: blocks unstacked and placed on table as intermediate steps
+  (:method bring-to-table-from-block
+    :parameters (?b - block ?under - block)
+    :task (bring-to-table ?b)
+    :precondition (and
+      (on ?b ?under)
+      (clear ?b)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?under)
+      (Putdown ?b)
+    )
+  )
+
+  ; Case 3: on another block, not clear
+  (:method bring-to-table-from-block-uncleared
+    :parameters (?b - block ?under - block)
+    :task (bring-to-table ?b)
+    :precondition (and
+      (on ?b ?under)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (ensure-clear ?b)
+      (Unstack ?b ?under)
+      (Putdown ?b)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for build-tower
+  ; places ?top onto ?bottom (both must be single blocks for this task)
+  ; -----------------------------------------------------------------------
+
+  ; Case 1: both clear and on table
+  ; Observed: 2_1 builds stack by picking from table and stacking
+  (:method build-tower-both-on-table
+    :parameters (?top - block ?bottom - block)
+    :task (build-tower ?top ?bottom)
+    :precondition (and
+      (on-table ?top)
+      (on-table ?bottom)
+      (clear ?top)
+      (clear ?bottom)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Pickup ?top)
+      (Stack ?top ?bottom)
+    )
+  )
+
+  ; Case 2: top is on another block, bottom is on table and clear
+  ; Observed: unstack then stack pattern in 1_10, 1_9
+  (:method build-tower-top-on-block
+    :parameters (?top - block ?bottom - block ?under-top - block)
+    :task (build-tower ?top ?bottom)
+    :precondition (and
+      (on ?top ?under-top)
+      (clear ?top)
+      (clear ?bottom)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Unstack ?top ?under-top)
+      (Stack ?top ?bottom)
+    )
+  )
+
+  ; Case 3: bottom not clear -- clear it first (generalisation)
+  (:method build-tower-clear-bottom-first
+    :parameters (?top - block ?bottom - block)
+    :task (build-tower ?top ?bottom)
+    :precondition (and
+      (on-table ?top)
+      (clear ?top)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (ensure-clear ?bottom)
+      (Pickup ?top)
+      (Stack ?top ?bottom)
+    )
+  )
+
+  ; Case 4: both need clearing -- general case (tentative)
+  (:method build-tower-general
+    :parameters (?top - block ?bottom - block)
+    :task (build-tower ?top ?bottom)
+    :precondition (and
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (bring-to-table ?top)
+      (ensure-clear ?bottom)
+      (Pickup ?top)
+      (Stack ?top ?bottom)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for make-stack
+  ; Places block ?b on top of ?base (base is already positioned)
+  ; Generalises multi-block stacking observed in all demonstrations
+  ; -----------------------------------------------------------------------
+
+  ; Base case: ?b is already correctly on ?base
+  (:method make-stack-done
+    :parameters (?b - block ?base - block)
+    :task (make-stack ?b ?base)
+    :precondition (and
+      (on ?b ?base)
+      (clear ?b)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; Recursive case: place ?b onto ?base, then the task is done
+  ; Observed: each block is placed in sequence from bottom to top
+  (:method make-stack-step
+    :parameters (?b - block ?base - block)
+    :task (make-stack ?b ?base)
+    :precondition (and
+      (hand-empty)
+      (clear ?base)
+    )
+    :ordered-subtasks (and
+      (bring-to-table ?b)
+      (ensure-clear ?base)
+      (Pickup ?b)
+      (Stack ?b ?base)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; ACTIONS (copied verbatim from PDDL domain)
+  ; -----------------------------------------------------------------------
+
+  (:action Pickup
+    :parameters (
+      ?b - block
+    )
+    :precondition
+    ( and
+      ( on-table ?b )
+      ( clear ?b )
+      ( hand-empty )
+    )
+    :effect
+    ( and
+      ( not ( on-table ?b ) )
+      ( not ( clear ?b ) )
+      ( not ( hand-empty ) )
+      ( holding ?b )
+    )
+  )
+
+  (:action Putdown
+    :parameters (
+      ?b - block
+    )
+    :precondition
+    ( and
+      ( holding ?b )
+    )
+    :effect
+    ( and
+      ( not ( holding ?b ) )
+      ( hand-empty )
+      ( on-table ?b )
+      ( clear ?b )
+    )
+  )
+
+  (:action Unstack
+    :parameters (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    ( and
+      ( on ?b1 ?b2 )
+      ( clear ?b1 )
+      ( hand-empty )
+    )
+    :effect
+    ( and
+      ( not ( on ?b1 ?b2 ) )
+      ( not ( clear ?b1 ) )
+      ( not ( hand-empty ) )
+      ( clear ?b2 )
+      ( holding ?b1 )
+    )
+  )
+
+  (:action Stack
+    :parameters (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    ( and
+      ( holding ?b1 )
+      ( clear ?b2 )
+    )
+    :effect
+    ( and
+      ( not ( holding ?b1 ) )
+      ( not ( clear ?b2 ) )
+      ( hand-empty )
+      ( on ?b1 ?b2 )
+      ( clear ?b1 )
+    )
+  )
+
+)

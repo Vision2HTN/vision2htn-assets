@@ -1,0 +1,337 @@
+(define (domain Blocks4)
+
+  (:requirements :hierarchy :strips :typing :equality)
+
+  (:types block)
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  ; ROOT TASK: build a stack of 3 blocks with ?top on ?mid on ?bot
+  ; Observed in 1_2 (C on B on A), 1_3 (A on B on C), 1_4 (A on B on C), 1_5 (C on A on B)
+  (:task root_build_tower_3
+    :parameters (?top - block ?mid - block ?bot - block)
+  )
+
+  ; ROOT TASK: build a stack of 4 blocks with ?top on ?b2 on ?b3 on ?bot
+  ; Observed in 1_6 (A on B on C on D tentative), 1_7 (D on C on A tentative)
+  (:task root_build_tower_4
+    :parameters (?top - block ?b2 - block ?b3 - block ?bot - block)
+  )
+
+  ; ABSTRACT TASK: place block ?b on top of block ?base, clearing both first
+  ; Used as subtask in tower-building methods
+  (:task place_on
+    :parameters (?b - block ?base - block)
+  )
+
+  ; ABSTRACT TASK: clear a block ?b so it can be used as a base or picked up
+  ; Handles the case where ?b may have one block on it
+  (:task make_clear
+    :parameters (?b - block)
+  )
+
+  ; ABSTRACT TASK: move block ?b to the table
+  ; Used when a block must be relocated to free a position
+  (:task move_to_table
+    :parameters (?b - block)
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for make_clear
+  ; -----------------------------------------------------------------------
+
+  ; make_clear: block is already clear, nothing to do
+  ; Observed: any step where the target block is already accessible
+  ; Generalises: base case for recursive clearing
+  (:method make_clear_already_clear
+    :parameters (?b - block)
+    :task (make_clear ?b)
+    :precondition (and
+      (clear ?b)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; make_clear: block ?b has exactly one block ?top on it; move ?top to table
+  ; Observed: in all demos, blocks on top of targets are moved to table before stacking
+  ; Generalises: single-level clearing for any two blocks
+  (:method make_clear_one_above
+    :parameters (?b - block ?top - block)
+    :task (make_clear ?b)
+    :precondition (and
+      (on ?top ?b)
+      (clear ?top)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (move_to_table ?top)
+      (make_clear ?b)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for move_to_table
+  ; -----------------------------------------------------------------------
+
+  ; move_to_table: block is on another block, unstack and put down
+  ; Observed: in every demo the robot unstacks a block then puts it on the table
+  ; Generalises: any block sitting on another block
+  (:method move_to_table_from_block
+    :parameters (?b - block ?base - block)
+    :task (move_to_table ?b)
+    :precondition (and
+      (on ?b ?base)
+      (clear ?b)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?base)
+      (Putdown ?b)
+    )
+  )
+
+  ; move_to_table: block is already on the table, nothing to do
+  ; Generalises: base case when block already at destination
+  (:method move_to_table_already_there
+    :parameters (?b - block)
+    :task (move_to_table ?b)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for place_on
+  ; -----------------------------------------------------------------------
+
+  ; place_on: ?b is on the table, ?base is clear; pickup and stack
+  ; Observed: 1_2 frame where B is picked from table and stacked onto A
+  ; Generalises: any block on table placed onto any clear block
+  (:method place_on_from_table
+    :parameters (?b - block ?base - block)
+    :task (place_on ?b ?base)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (clear ?base)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Pickup ?b)
+      (Stack ?b ?base)
+    )
+  )
+
+  ; place_on: ?b is on another block ?src, ?base is clear; unstack and stack
+  ; Observed: 1_3 block B unstacked from its position and stacked onto C
+  ; Generalises: any block on another block placed onto any clear block
+  (:method place_on_from_block
+    :parameters (?b - block ?src - block ?base - block)
+    :task (place_on ?b ?base)
+    :precondition (and
+      (on ?b ?src)
+      (clear ?b)
+      (clear ?base)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?src)
+      (Stack ?b ?base)
+    )
+  )
+
+  ; place_on: ?base is not yet clear; clear it first then place
+  ; Observed: 1_4 and 1_5 where target base block needed clearing before stacking
+  ; Generalises: recursive clearing before placement
+  (:method place_on_clear_base_first
+    :parameters (?b - block ?base - block ?blocker - block)
+    :task (place_on ?b ?base)
+    :precondition (and
+      (on ?blocker ?base)
+      (clear ?blocker)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (make_clear ?base)
+      (place_on ?b ?base)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for root_build_tower_3
+  ; -----------------------------------------------------------------------
+
+  ; Build tower ?top on ?mid on ?bot from arbitrary initial state
+  ; Strategy: ensure ?bot is in place on table and clear, place ?mid on ?bot,
+  ;           then place ?top on ?mid
+  ; Observed: 1_2 final state C/B/A, 1_3 final state A/B/C, 1_4 A/B/C, 1_5 C/A/B
+  ; Generalises: any 3-block tower goal with arbitrary block colours/labels
+  (:method build_tower_3_full
+    :parameters (?top - block ?mid - block ?bot - block)
+    :task (root_build_tower_3 ?top ?mid ?bot)
+    :precondition (and
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (make_clear ?bot)
+      (move_to_table ?bot)
+      (make_clear ?mid)
+      (place_on ?mid ?bot)
+      (make_clear ?top)
+      (place_on ?top ?mid)
+    )
+  )
+
+  ; Build tower when ?bot is already on table and clear, ?mid already on ?bot
+  ; and only ?top needs to be placed; optimised shortcut
+  ; Observed: partial completion states in 1_3 and 1_5
+  ; Generalises: incremental tower construction
+  (:method build_tower_3_top_only
+    :parameters (?top - block ?mid - block ?bot - block)
+    :task (root_build_tower_3 ?top ?mid ?bot)
+    :precondition (and
+      (on ?mid ?bot)
+      (on-table ?bot)
+      (clear ?mid)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (make_clear ?top)
+      (place_on ?top ?mid)
+    )
+  )
+
+  ; Build tower when bottom two blocks need assembling but top is already on mid
+  ; Tentative: covers partial goal states where top sub-tower exists
+  (:method build_tower_3_bot_only
+    :parameters (?top - block ?mid - block ?bot - block)
+    :task (root_build_tower_3 ?top ?mid ?bot)
+    :precondition (and
+      (on ?top ?mid)
+      (clear ?top)
+      (on-table ?mid)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (make_clear ?bot)
+      (move_to_table ?bot)
+      (place_on ?mid ?bot)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for root_build_tower_4
+  ; -----------------------------------------------------------------------
+
+  ; Build a 4-block tower ?top/?b2/?b3/?bot from arbitrary initial state
+  ; Observed: 1_6 partial evidence (A,B,C,D rearranged), 1_7 (D,C,A,B ordering)
+  ; Generalises: extends the 3-block pattern to 4 blocks
+  (:method build_tower_4_full
+    :parameters (?top - block ?b2 - block ?b3 - block ?bot - block)
+    :task (root_build_tower_4 ?top ?b2 ?b3 ?bot)
+    :precondition (and
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (make_clear ?bot)
+      (move_to_table ?bot)
+      (make_clear ?b3)
+      (place_on ?b3 ?bot)
+      (make_clear ?b2)
+      (place_on ?b2 ?b3)
+      (make_clear ?top)
+      (place_on ?top ?b2)
+    )
+  )
+
+  ; Build 4-block tower when bottom sub-tower ?b3/?bot already assembled
+  ; Tentative: observed in 1_7 where lower portion was pre-assembled
+  (:method build_tower_4_top_half
+    :parameters (?top - block ?b2 - block ?b3 - block ?bot - block)
+    :task (root_build_tower_4 ?top ?b2 ?b3 ?bot)
+    :precondition (and
+      (on ?b3 ?bot)
+      (on-table ?bot)
+      (clear ?b3)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (make_clear ?b2)
+      (place_on ?b2 ?b3)
+      (make_clear ?top)
+      (place_on ?top ?b2)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; ACTIONS (copied verbatim from PDDL domain)
+  ; -----------------------------------------------------------------------
+
+  (:action Pickup
+    :parameters (?b - block)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (hand-empty)
+    )
+    :effect (and
+      (not (on-table ?b))
+      (not (clear ?b))
+      (not (hand-empty))
+      (holding ?b)
+    )
+  )
+
+  (:action Putdown
+    :parameters (?b - block)
+    :precondition (and
+      (holding ?b)
+    )
+    :effect (and
+      (not (holding ?b))
+      (hand-empty)
+      (on-table ?b)
+      (clear ?b)
+    )
+  )
+
+  (:action Unstack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and
+      (on ?b1 ?b2)
+      (clear ?b1)
+      (hand-empty)
+    )
+    :effect (and
+      (not (on ?b1 ?b2))
+      (not (clear ?b1))
+      (not (hand-empty))
+      (clear ?b2)
+      (holding ?b1)
+    )
+  )
+
+  (:action Stack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and
+      (holding ?b1)
+      (clear ?b2)
+    )
+    :effect (and
+      (not (holding ?b1))
+      (not (clear ?b2))
+      (hand-empty)
+      (on ?b1 ?b2)
+      (clear ?b1)
+    )
+  )
+
+)

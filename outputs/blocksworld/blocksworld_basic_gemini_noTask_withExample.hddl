@@ -1,0 +1,327 @@
+(define (domain Blocks4)
+
+  (:requirements :hierarchy :strips :typing :equality)
+
+  (:types block)
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  (:task root_make_on
+    :parameters (?top - block ?bottom - block)
+  )
+
+  (:task root_move_to_table
+    :parameters (?b - block)
+  )
+
+  (:task root_clear_block
+    :parameters (?b - block)
+  )
+
+  (:task root_build_tower
+    :parameters (?top - block ?mid - block)
+  )
+
+  (:task make_on
+    :parameters (?top - block ?bottom - block)
+  )
+
+  (:task move_to_table
+    :parameters (?b - block)
+  )
+
+  (:task clear_block
+    :parameters (?b - block)
+  )
+
+  (:task acquire_block
+    :parameters (?b - block)
+  )
+
+  (:task build_tower
+    :parameters (?top - block ?bottom - block)
+  )
+
+  (:method m-root-make-on
+    :parameters (?top - block ?bottom - block)
+    :task (root_make_on ?top ?bottom)
+    :precondition (and (= ?top ?top) (= ?bottom ?bottom))
+    :ordered-subtasks (and
+      (make_on ?top ?bottom)
+    )
+  )
+
+  (:method m-root-move-to-table
+    :parameters (?b - block)
+    :task (root_move_to_table ?b)
+    :precondition (and (= ?b ?b))
+    :ordered-subtasks (and
+      (move_to_table ?b)
+    )
+  )
+
+  (:method m-root-clear-block
+    :parameters (?b - block)
+    :task (root_clear_block ?b)
+    :precondition (and (= ?b ?b))
+    :ordered-subtasks (and
+      (clear_block ?b)
+    )
+  )
+
+  (:method m-root-build-tower
+    :parameters (?top - block ?mid - block)
+    :task (root_build_tower ?top ?mid)
+    :precondition (and (not (= ?top ?mid)))
+    :ordered-subtasks (and
+      (build_tower ?top ?mid)
+    )
+  )
+
+  (:method m-make-on-already-done
+    :parameters (?top - block ?bottom - block)
+    :task (make_on ?top ?bottom)
+    :precondition (and
+      (on ?top ?bottom)
+    )
+    :subtasks ()
+  )
+
+  (:method m-make-on-stack-from-table
+    :parameters (?top - block ?bottom - block)
+    :task (make_on ?top ?bottom)
+    :precondition (and
+      (on-table ?top)
+      (clear ?top)
+      (not (= ?top ?bottom))
+    )
+    :ordered-subtasks (and
+      (clear_block ?bottom)
+      (acquire_block ?top)
+      (Stack ?top ?bottom)
+    )
+  )
+
+  (:method m-make-on-stack-from-other-block
+    :parameters (?top - block ?bottom - block ?support - block)
+    :task (make_on ?top ?bottom)
+    :precondition (and
+      (on ?top ?support)
+      (clear ?top)
+      (not (= ?top ?bottom))
+      (not (= ?top ?support))
+      (not (= ?bottom ?support))
+    )
+    :ordered-subtasks (and
+      (clear_block ?bottom)
+      (acquire_block ?top)
+      (Stack ?top ?bottom)
+    )
+  )
+
+  (:method m-move-to-table-already-done
+    :parameters (?b - block)
+    :task (move_to_table ?b)
+    :precondition (and
+      (on-table ?b)
+    )
+    :subtasks ()
+  )
+
+  (:method m-move-to-table-from-holding
+    :parameters (?b - block)
+    :task (move_to_table ?b)
+    :precondition (and
+      (holding ?b)
+    )
+    :ordered-subtasks (and
+      (Putdown ?b)
+    )
+  )
+
+  (:method m-move-to-table-from-stack
+    :parameters (?b - block ?support - block)
+    :task (move_to_table ?b)
+    :precondition (and
+      (on ?b ?support)
+      (clear ?b)
+      (hand-empty)
+      (not (= ?b ?support))
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?support)
+      (Putdown ?b)
+    )
+  )
+
+  (:method m-clear-block-already-clear
+    :parameters (?b - block)
+    :task (clear_block ?b)
+    :precondition (and
+      (clear ?b)
+    )
+    :subtasks ()
+  )
+
+  (:method m-clear-block-by-moving-top-to-table
+    :parameters (?b - block ?x - block)
+    :task (clear_block ?b)
+    :precondition (and
+      (on ?x ?b)
+      (clear ?x)
+      (not (= ?x ?b))
+    )
+    :ordered-subtasks (and
+      (move_to_table ?x)
+      (clear_block ?b)
+    )
+  )
+
+  (:method m-acquire-block-from-table
+    :parameters (?b - block)
+    :task (acquire_block ?b)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Pickup ?b)
+    )
+  )
+
+  (:method m-acquire-block-from-stack
+    :parameters (?b - block ?support - block)
+    :task (acquire_block ?b)
+    :precondition (and
+      (on ?b ?support)
+      (clear ?b)
+      (hand-empty)
+      (not (= ?b ?support))
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?support)
+    )
+  )
+
+  (:method m-acquire-block-already-holding
+    :parameters (?b - block)
+    :task (acquire_block ?b)
+    :precondition (and
+      (holding ?b)
+    )
+    :subtasks ()
+  )
+
+  (:method m-build-tower-direct
+    :parameters (?top - block ?bottom - block)
+    :task (build_tower ?top ?bottom)
+    :precondition (and
+      (not (= ?top ?bottom))
+    )
+    :ordered-subtasks (and
+      (make_on ?top ?bottom)
+    )
+  )
+
+  (:method m-build-tower-extend
+    :parameters (?top - block ?mid - block ?bottom - block)
+    :task (build_tower ?top ?bottom)
+    :precondition (and
+      (not (= ?top ?mid))
+      (not (= ?mid ?bottom))
+      (not (= ?top ?bottom))
+    )
+    :ordered-subtasks (and
+      (build_tower ?mid ?bottom)
+      (make_on ?top ?mid)
+    )
+  )
+
+  (:action Pickup
+    :parameters
+    (
+      ?b - block
+    )
+    :precondition
+    ( and
+      ( on-table ?b )
+      ( clear ?b )
+      ( hand-empty )
+    )
+    :effect
+    ( and
+      ( not ( on-table ?b ) )
+      ( not ( clear ?b ) )
+      ( not ( hand-empty ) )
+      ( holding ?b )
+    )
+  )
+
+  (:action Putdown
+    :parameters
+    (
+      ?b - block
+    )
+    :precondition
+    ( and
+      ( holding ?b )
+    )
+    :effect
+    ( and
+      ( not ( holding ?b ) )
+      ( hand-empty )
+      ( on-table ?b )
+      ( clear ?b )
+    )
+  )
+
+  (:action Unstack
+    :parameters
+    (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    ( and
+      ( on ?b1 ?b2 )
+      ( clear ?b1 )
+      ( hand-empty )
+    )
+    :effect
+    ( and
+      ( not ( on ?b1 ?b2 ) )
+      ( not ( clear ?b1 ) )
+      ( not ( hand-empty ) )
+      ( clear ?b2 )
+      ( holding ?b1 )
+    )
+  )
+
+  (:action Stack
+    :parameters
+    (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    ( and
+      ( holding ?b1 )
+      ( clear ?b2 )
+    )
+    :effect
+    ( and
+      ( not ( holding ?b1 ) )
+      ( not ( clear ?b2 ) )
+      ( hand-empty )
+      ( on ?b1 ?b2 )
+      ( clear ?b1 )
+    )
+  )
+)

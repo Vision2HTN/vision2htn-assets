@@ -1,0 +1,267 @@
+(define (domain Blocks4)
+  (:requirements :hierarchy :strips :typing :equality)
+
+  (:types block)
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  (:task root-build-tower ; strongly supported: all demos pursue a lifted tower-building objective from varying initial layouts
+    :parameters (?top - block ?bottom - block)
+  )
+
+  (:task build-tower ; strongly supported: recursive construction seen in 1_8, 1_9, 1_10, 2_3, 2_5
+    :parameters (?top - block ?bottom - block)
+  )
+
+  (:task place-on ; strongly supported: every final assembly step places one block on another or table-supported substructure
+    :parameters (?b1 - block ?b2 - block)
+  )
+
+  (:task clear-block ; strongly supported: when a needed block/support is buried, demonstrations first remove obstructing top blocks
+    :parameters (?b - block)
+  )
+
+  (:task move-to-table ; strongly supported: many clearing steps relocate a top block onto an empty stack/table position
+    :parameters (?b - block)
+  )
+
+  (:method root-direct-build ; strongly supported by all videos ending with a single taller stack, generalized to any requested top/bottom pair
+    :parameters (?top - block ?bottom - block)
+    :task (root-build-tower ?top ?bottom)
+    :ordered-subtasks (and
+      (build-tower ?top ?bottom)
+    )
+  )
+
+  (:method build-tower-done ; strongly supported: if desired relation already holds, no further decomposition is needed
+    :parameters (?top - block ?bottom - block)
+    :task (build-tower ?top ?bottom)
+    :precondition (on ?top ?bottom)
+    :subtasks ()
+  )
+
+  (:method build-tower-extend ; strongly supported: observed towers are built bottom-up by first creating/supporting a subtower then adding a block on top
+    :parameters (?top - block ?mid - block ?bottom - block)
+    :task (build-tower ?top ?bottom)
+    :precondition (and
+      (not (= ?top ?bottom))
+      (not (= ?top ?mid))
+      (not (= ?mid ?bottom))
+      (clear ?top)
+    )
+    :ordered-subtasks (and
+      (build-tower ?mid ?bottom)
+      (place-on ?top ?mid)
+    )
+  )
+
+  (:method place-on-already ; strongly supported: some subtasks may be satisfied already in other instances, so include null decomposition
+    :parameters (?b1 - block ?b2 - block)
+    :task (place-on ?b1 ?b2)
+    :precondition (on ?b1 ?b2)
+    :subtasks ()
+  )
+
+  (:method place-on-from-table ; strongly supported by moves like placing A on built stack in 1_8/1_9 and C/D/E on partial towers in other demos
+    :parameters (?b1 - block ?b2 - block)
+    :task (place-on ?b1 ?b2)
+    :precondition (and
+      (on-table ?b1)
+      (clear ?b1)
+      (clear ?b2)
+      (hand-empty)
+      (not (= ?b1 ?b2))
+    )
+    :ordered-subtasks (and
+      (Pickup ?b1)
+      (Stack ?b1 ?b2)
+    )
+  )
+
+  (:method place-on-from-stack ; strongly supported by unstack-then-stack patterns seen repeatedly when reorganizing existing towers
+    :parameters (?b1 - block ?x - block ?b2 - block)
+    :task (place-on ?b1 ?b2)
+    :precondition (and
+      (on ?b1 ?x)
+      (clear ?b1)
+      (hand-empty)
+      (clear ?b2)
+      (not (= ?b1 ?b2))
+      (not (= ?b1 ?x))
+      (not (= ?x ?b2))
+    )
+    :ordered-subtasks (and
+      (Unstack ?b1 ?x)
+      (Stack ?b1 ?b2)
+    )
+  )
+
+  (:method place-on-after-clearing-b1 ; strongly supported: if the moved block is buried, demos first free it, then place it
+    :parameters (?b1 - block ?b2 - block)
+    :task (place-on ?b1 ?b2)
+    :precondition (and
+      (not (= ?b1 ?b2))
+      (not (clear ?b1))
+    )
+    :ordered-subtasks (and
+      (clear-block ?b1)
+      (place-on ?b1 ?b2)
+    )
+  )
+
+  (:method place-on-after-clearing-both ; plausible generalisation from domain structure and repeated need to free both manipulated block and destination
+    :parameters (?b1 - block ?b2 - block)
+    :task (place-on ?b1 ?b2)
+    :precondition (and
+      (not (= ?b1 ?b2))
+      (not (clear ?b2))
+    )
+    :ordered-subtasks (and
+      (clear-block ?b2)
+      (place-on ?b1 ?b2)
+    )
+  )
+
+  (:method clear-block-done ; strongly supported: topmost blocks need no preparation before being used
+    :parameters (?b - block)
+    :task (clear-block ?b)
+    :precondition (clear ?b)
+    :subtasks ()
+  )
+
+  (:method clear-block-by-moving-top-to-table ; strongly supported by many steps where a blocking top block is removed and put onto an empty stack/table
+    :parameters (?b - block ?x - block)
+    :task (clear-block ?b)
+    :precondition (and
+      (on ?x ?b)
+      (clear ?x)
+      (hand-empty)
+      (not (= ?x ?b))
+    )
+    :ordered-subtasks (and
+      (move-to-table ?x)
+      (clear-block ?b)
+    )
+  )
+
+  (:method move-to-table-done ; plausible but general: if a block already sits alone on table, relocation goal is trivially satisfied
+    :parameters (?b - block)
+    :task (move-to-table ?b)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+    )
+    :subtasks ()
+  )
+
+  (:method move-to-table-from-stack ; strongly supported by clearing moves across all demos, e.g. removing top blocks before assembling target towers
+    :parameters (?b - block ?x - block)
+    :task (move-to-table ?b)
+    :precondition (and
+      (on ?b ?x)
+      (clear ?b)
+      (hand-empty)
+      (not (= ?b ?x))
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?x)
+      (Putdown ?b)
+    )
+  )
+
+  (:method move-to-table-from-holding ; plausible generalisation from primitive domain: if a planner reaches holding state, putting down completes relocation
+    :parameters (?b - block)
+    :task (move-to-table ?b)
+    :precondition (holding ?b)
+    :ordered-subtasks (and
+      (Putdown ?b)
+    )
+  )
+
+  (:action Pickup
+    :parameters
+    (
+      ?b - block
+    )
+    :precondition
+    ( and
+      ( on-table ?b )
+      ( clear ?b )
+      ( hand-empty )
+    )
+    :effect
+    ( and
+      ( not ( on-table ?b ) )
+      ( not ( clear ?b ) )
+      ( not ( hand-empty ) )
+      ( holding ?b )
+    )
+  )
+
+  (:action Putdown
+    :parameters
+    (
+      ?b - block
+    )
+    :precondition
+    ( and
+      ( holding ?b )
+    )
+    :effect
+    ( and
+      ( not ( holding ?b ) )
+      ( hand-empty )
+      ( on-table ?b )
+      ( clear ?b )
+    )
+  )
+
+  (:action Unstack
+    :parameters
+    (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    ( and
+      ( on ?b1 ?b2 )
+      ( clear ?b1 )
+      ( hand-empty )
+    )
+    :effect
+    ( and
+      ( not ( on ?b1 ?b2 ) )
+      ( not ( clear ?b1 ) )
+      ( not ( hand-empty ) )
+      ( clear ?b2 )
+      ( holding ?b1 )
+    )
+  )
+
+  (:action Stack
+    :parameters
+    (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    ( and
+      ( holding ?b1 )
+      ( clear ?b2 )
+    )
+    :effect
+    ( and
+      ( not ( holding ?b1 ) )
+      ( not ( clear ?b2 ) )
+      ( hand-empty )
+      ( on ?b1 ?b2 )
+      ( clear ?b1 )
+    )
+  )
+)

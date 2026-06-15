@@ -1,0 +1,226 @@
+(define (domain Blocks4)
+  (:requirements :hierarchy :strips :typing :equality)
+
+  (:types block)
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  (:task root_arrange-block                  ; ROOT TASK | inferred general top-level objective from repeated pickup/stack/putdown/unstack patterns; generalises to arbitrary block arrangement goals. [plausible generalisation]
+    :parameters (?b - block)
+  )
+
+  (:task make-clear
+    :parameters (?b - block)
+  )                                          ; motivated by need to free supporting/target blocks before stack/unstack; generalises to any blocked block. [strongly supported]
+
+  (:task place-on
+    :parameters (?b1 - block ?b2 - block)
+  )                                          ; motivated by observed stack-type transitions; generalises to achieving any on relation. [strongly supported]
+
+  (:task place-on-table
+    :parameters (?b - block)
+  )                                          ; motivated by putdown outcomes; generalises to restoring a block to table position. [strongly supported]
+
+  (:task get-holding
+    :parameters (?b - block)
+  )                                          ; abstracts obtaining a held block via pickup or unstack; broadly reusable across blocksworld tasks. [strongly supported]
+
+  (:method root_arrange-direct-on
+    :parameters (?b1 - block ?b2 - block)
+    :task (root_arrange-block ?b1)
+    :precondition (and
+      (not (= ?b1 ?b2))
+    )
+    :ordered-subtasks (and
+      (place-on ?b1 ?b2)
+    )
+  )                                          ; evidence: stacking behavior suggests top-level assembly can target support relations; generalises to any pair of distinct blocks. [plausible generalisation]
+
+  (:method root_arrange-direct-table
+    :parameters (?b - block)
+    :task (root_arrange-block ?b)
+    :ordered-subtasks (and
+      (place-on-table ?b)
+    )
+  )                                          ; evidence: putdown yields table placement; generalises as an alternative root-level arrangement objective. [plausible generalisation]
+
+  (:method make-clear-already
+    :parameters (?b - block)
+    :task (make-clear ?b)
+    :precondition (and
+      (clear ?b)
+    )
+    :subtasks ()
+  )                                          ; evidence: no action needed when target already clear; standard lifted termination case. [strongly supported]
+
+  (:method make-clear-by-removing-top-to-table
+    :parameters (?b - block ?x - block)
+    :task (make-clear ?b)
+    :precondition (and
+      (on ?x ?b)
+      (clear ?x)
+      (hand-empty)
+      (not (= ?x ?b))
+    )
+    :ordered-subtasks (and
+      (Unstack ?x ?b)
+      (Putdown ?x)
+      (make-clear ?b)
+    )
+  )                                          ; evidence: unstack then putdown is the primitive way to remove a top block; recursively generalises to towers of any height. [strongly supported]
+
+  (:method get-holding-by-pickup
+    :parameters (?b - block)
+    :task (get-holding ?b)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Pickup ?b)
+    )
+  )                                          ; evidence: direct pickup from table appears in domain as primitive acquisition mode; general across instances. [strongly supported]
+
+  (:method get-holding-by-unstack
+    :parameters (?b - block ?under - block)
+    :task (get-holding ?b)
+    :precondition (and
+      (on ?b ?under)
+      (clear ?b)
+      (hand-empty)
+      (not (= ?b ?under))
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?under)
+    )
+  )                                          ; evidence: direct unstack from another block is the other primitive acquisition mode; lifted and reusable. [strongly supported]
+
+  (:method place-on-direct
+    :parameters (?b1 - block ?b2 - block)
+    :task (place-on ?b1 ?b2)
+    :precondition (and
+      (not (= ?b1 ?b2))
+    )
+    :ordered-subtasks (and
+      (make-clear ?b2)
+      (get-holding ?b1)
+      (Stack ?b1 ?b2)
+    )
+  )                                          ; evidence: to stack b1 on b2, support must be clear and b1 must be held; matches primitive semantics and generalises broadly. [strongly supported]
+
+  (:method place-on-already
+    :parameters (?b1 - block ?b2 - block)
+    :task (place-on ?b1 ?b2)
+    :precondition (and
+      (on ?b1 ?b2)
+      (not (= ?b1 ?b2))
+    )
+    :subtasks ()
+  )                                          ; evidence: achievement tasks need completion test; lifted no-op method prevents redundant decomposition. [strongly supported]
+
+  (:method place-on-table-direct
+    :parameters (?b - block)
+    :task (place-on-table ?b)
+    :ordered-subtasks (and
+      (get-holding ?b)
+      (Putdown ?b)
+    )
+  )                                          ; evidence: any table placement requires holding then putdown under given primitives; generalises to any block. [strongly supported]
+
+  (:method place-on-table-already
+    :parameters (?b - block)
+    :task (place-on-table ?b)
+    :precondition (and
+      (on-table ?b)
+    )
+    :subtasks ()
+  )                                          ; evidence: standard done-case for achievement of on-table; general no-op abstraction. [strongly supported]
+
+  (:action Pickup
+    :parameters
+    (
+      ?b - block
+    )
+    :precondition
+    (and
+      (on-table ?b)
+      (clear ?b)
+      (hand-empty)
+    )
+    :effect
+    (and
+      (not (on-table ?b))
+      (not (clear ?b))
+      (not (hand-empty))
+      (holding ?b)
+    )
+  )
+
+  (:action Putdown
+    :parameters
+    (
+      ?b - block
+    )
+    :precondition
+    (and
+      (holding ?b)
+    )
+    :effect
+    (and
+      (not (holding ?b))
+      (hand-empty)
+      (on-table ?b)
+      (clear ?b)
+    )
+  )
+
+  (:action Unstack
+    :parameters
+    (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    (and
+      (on ?b1 ?b2)
+      (clear ?b1)
+      (hand-empty)
+    )
+    :effect
+    (and
+      (not (on ?b1 ?b2))
+      (not (clear ?b1))
+      (not (hand-empty))
+      (clear ?b2)
+      (holding ?b1)
+    )
+  )
+
+  (:action Stack
+    :parameters
+    (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    (and
+      (holding ?b1)
+      (clear ?b2)
+    )
+    :effect
+    (and
+      (not (holding ?b1))
+      (not (clear ?b2))
+      (hand-empty)
+      (on ?b1 ?b2)
+      (clear ?b1)
+    )
+  )
+)

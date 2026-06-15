@@ -1,0 +1,346 @@
+(define (domain Blocks4)
+
+  (:requirements :hierarchy :strips :typing :equality)
+
+  (:types block)
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  ; ROOT TASK: make a block be on the table
+  (:task t-Make-On-Table
+    :parameters (?block - block)
+  )
+
+  ; ROOT TASK: make one block be directly on top of another
+  (:task t-Make-On
+    :parameters (?above - block ?below - block)
+  )
+
+  ; ROOT TASK: build a stack of three blocks A on B on C (observed in 1_2, 1_3, 1_4, 1_5)
+  (:task t-Make-Tower-3
+    :parameters (?top - block ?mid - block ?bot - block)
+  )
+
+  ; ROOT TASK: build a stack of four blocks (observed in 1_6, 1_7)
+  (:task t-Make-Tower-4
+    :parameters (?top - block ?upper - block ?lower - block ?bot - block)
+  )
+
+  ; Intermediate task: ensure a block is clear (unblocked from above)
+  (:task t-Clear-Block
+    :parameters (?b - block)
+  )
+
+  ; Intermediate task: ensure hand is empty
+  (:task t-Ensure-Hand-Empty
+    :parameters ()
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for t-Make-On-Table
+  ; -----------------------------------------------------------------------
+
+  ; Case 1: block is already on the table and clear -- nothing to do
+  ; Evidence: initial states in demos where a block starts on table
+  (:method m-Make-On-Table-already
+    :parameters (?block - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (and
+      (on-table ?block)
+      (hand-empty)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; Case 2: block is on top of another block -- unstack it and put it down
+  ; Evidence: observed in all demos when clearing a block before stacking
+  (:method m-Make-On-Table-from-stack
+    :parameters (?block - block ?below - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (and
+      (on ?block ?below)
+      (clear ?block)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Unstack ?block ?below)
+      (Putdown ?block)
+    )
+  )
+
+  ; Case 3: block is on top of another block but not clear -- clear it first, then unstack
+  ; Generalisation: handles deeper stacks
+  (:method m-Make-On-Table-clear-first
+    :parameters (?block - block ?below - block ?above - block)
+    :task (t-Make-On-Table ?block)
+    :precondition (and
+      (on ?block ?below)
+      (on ?above ?block)
+    )
+    :ordered-subtasks (and
+      (t-Clear-Block ?block)
+      (Unstack ?block ?below)
+      (Putdown ?block)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for t-Clear-Block
+  ; -----------------------------------------------------------------------
+
+  ; Base case: block is already clear
+  (:method m-Clear-Block-already
+    :parameters (?b - block)
+    :task (t-Clear-Block ?b)
+    :precondition (and
+      (clear ?b)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; Recursive case: remove the block on top by putting it on the table
+  ; Evidence: observed repeatedly in demos when disassembling stacks
+  (:method m-Clear-Block-remove-top
+    :parameters (?b - block ?top - block)
+    :task (t-Clear-Block ?b)
+    :precondition (and
+      (on ?top ?b)
+      (clear ?top)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Unstack ?top ?b)
+      (Putdown ?top)
+    )
+  )
+
+  ; Recursive case: top block itself has something on it -- clear top first
+  (:method m-Clear-Block-clear-top-first
+    :parameters (?b - block ?top - block)
+    :task (t-Clear-Block ?b)
+    :precondition (and
+      (on ?top ?b)
+    )
+    :ordered-subtasks (and
+      (t-Clear-Block ?top)
+      (Unstack ?top ?b)
+      (Putdown ?top)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for t-Make-On
+  ; -----------------------------------------------------------------------
+
+  ; Base case: already in the desired configuration
+  ; Evidence: any demo frame where target relation already holds
+  (:method m-Make-On-already
+    :parameters (?above - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and
+      (on ?above ?below)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; Case: above is on the table, below is clear -- just pick up and stack
+  ; Evidence: directly observed stack actions in all demos
+  (:method m-Make-On-from-table
+    :parameters (?above - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and
+      (on-table ?above)
+      (clear ?above)
+      (clear ?below)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Pickup ?above)
+      (Stack ?above ?below)
+    )
+  )
+
+  ; Case: above is on another block, below is clear -- unstack then stack
+  ; Evidence: observed in 1_2 where B was moved from stack2 to stack1
+  (:method m-Make-On-from-another-block
+    :parameters (?above - block ?below - block ?current-support - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and
+      (on ?above ?current-support)
+      (clear ?above)
+      (clear ?below)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Unstack ?above ?current-support)
+      (Stack ?above ?below)
+    )
+  )
+
+  ; Case: need to clear the destination block first, then move above onto it
+  ; Evidence: generalises from demos where destination was occupied
+  (:method m-Make-On-clear-below-first
+    :parameters (?above - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and
+      (not (clear ?below))
+      (not (on ?above ?below))
+    )
+    :ordered-subtasks (and
+      (t-Clear-Block ?below)
+      (t-Make-On-Table ?above)
+      (Pickup ?above)
+      (Stack ?above ?below)
+    )
+  )
+
+  ; Case: need to clear both above and below
+  ; Tentative generalisation for complex initial states
+  (:method m-Make-On-clear-both-first
+    :parameters (?above - block ?below - block)
+    :task (t-Make-On ?above ?below)
+    :precondition (and
+      (not (clear ?above))
+      (not (on ?above ?below))
+    )
+    :ordered-subtasks (and
+      (t-Clear-Block ?above)
+      (t-Clear-Block ?below)
+      (t-Make-On-Table ?above)
+      (Pickup ?above)
+      (Stack ?above ?below)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for t-Make-Tower-3
+  ; Build a three-block tower: ?top on ?mid on ?bot
+  ; Evidence: demos 1_2, 1_3, 1_4, 1_5 all end with a 3-block stack
+  ; -----------------------------------------------------------------------
+
+  ; Standard decomposition: first build base (mid on bot), then place top
+  (:method m-Make-Tower-3-standard
+    :parameters (?top - block ?mid - block ?bot - block)
+    :task (t-Make-Tower-3 ?top ?mid ?bot)
+    :precondition (and
+      (not (= ?top ?mid))
+      (not (= ?top ?bot))
+      (not (= ?mid ?bot))
+    )
+    :ordered-subtasks (and
+      (t-Make-On-Table ?bot)
+      (t-Clear-Block ?bot)
+      (t-Make-On-Table ?mid)
+      (Pickup ?mid)
+      (Stack ?mid ?bot)
+      (t-Clear-Block ?mid)
+      (t-Make-On-Table ?top)
+      (Pickup ?top)
+      (Stack ?top ?mid)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for t-Make-Tower-4
+  ; Build a four-block tower: ?top on ?upper on ?lower on ?bot
+  ; Evidence: demos 1_6, 1_7 end with a 4-block stack
+  ; -----------------------------------------------------------------------
+
+  (:method m-Make-Tower-4-standard
+    :parameters (?top - block ?upper - block ?lower - block ?bot - block)
+    :task (t-Make-Tower-4 ?top ?upper ?lower ?bot)
+    :precondition (and
+      (not (= ?top ?upper))
+      (not (= ?top ?lower))
+      (not (= ?top ?bot))
+      (not (= ?upper ?lower))
+      (not (= ?upper ?bot))
+      (not (= ?lower ?bot))
+    )
+    :ordered-subtasks (and
+      (t-Make-On-Table ?bot)
+      (t-Clear-Block ?bot)
+      (t-Make-On-Table ?lower)
+      (Pickup ?lower)
+      (Stack ?lower ?bot)
+      (t-Clear-Block ?lower)
+      (t-Make-On-Table ?upper)
+      (Pickup ?upper)
+      (Stack ?upper ?lower)
+      (t-Clear-Block ?upper)
+      (t-Make-On-Table ?top)
+      (Pickup ?top)
+      (Stack ?top ?upper)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; ACTIONS (copied verbatim from PDDL domain)
+  ; -----------------------------------------------------------------------
+
+  (:action Pickup
+    :parameters (?b - block)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (hand-empty)
+    )
+    :effect (and
+      (not (on-table ?b))
+      (not (clear ?b))
+      (not (hand-empty))
+      (holding ?b)
+    )
+  )
+
+  (:action Putdown
+    :parameters (?b - block)
+    :precondition (and
+      (holding ?b)
+    )
+    :effect (and
+      (not (holding ?b))
+      (hand-empty)
+      (on-table ?b)
+      (clear ?b)
+    )
+  )
+
+  (:action Unstack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and
+      (on ?b1 ?b2)
+      (clear ?b1)
+      (hand-empty)
+    )
+    :effect (and
+      (not (on ?b1 ?b2))
+      (not (clear ?b1))
+      (not (hand-empty))
+      (clear ?b2)
+      (holding ?b1)
+    )
+  )
+
+  (:action Stack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and
+      (holding ?b1)
+      (clear ?b2)
+    )
+    :effect (and
+      (not (holding ?b1))
+      (not (clear ?b2))
+      (hand-empty)
+      (on ?b1 ?b2)
+      (clear ?b1)
+    )
+  )
+
+)

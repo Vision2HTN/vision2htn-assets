@@ -1,0 +1,311 @@
+(define (domain Blocks4)
+  (:requirements :hierarchy :strips :typing :equality)
+
+  (:types block)
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  ; ROOT TASK. Strongly supported: all demonstrations achieve some lifted placement relation
+  ; (put x on y or move x to table), not specific object names.
+  (:task root_arrange-block
+    :parameters (?b - block ?dest - block)
+  )
+
+  ; ROOT TASK. Strongly supported by demos 1_2, 1_3, 1_4, 1_5, 1_7 where blocks are stacked onto blocks.
+  ; Generalises to any desired on relation.
+  (:task achieve-on
+    :parameters (?top - block ?bottom - block)
+  )
+
+  ; ROOT TASK. Strongly supported by demos such as 1_6 where a top block is removed to table.
+  ; Generalises to any goal requiring a block be placed on the table.
+  (:task achieve-on-table
+    :parameters (?b - block)
+  )
+
+  ; Intermediate task. Strongly supported: before stacking, destination must be clear in demos 1_3, 1_4, 1_5, 1_7.
+  (:task clear-block
+    :parameters (?b - block)
+  )
+
+  ; Intermediate task. Strongly supported: several demos unstack obstructing blocks and put them down elsewhere.
+  ; Generalises as a lifted "free this held/blocked block" objective.
+  (:task move-block-away
+    :parameters (?b - block)
+  )
+
+  ; Intermediate task. Strongly supported: if a block is buried in a stack, higher blocks are removed first.
+  (:task make-accessible
+    :parameters (?b - block)
+  )
+
+  (:method m-root-arrange-as-on
+    :parameters (?b - block ?dest - block)
+    :task (root_arrange-block ?b ?dest)
+    :precondition (and
+      (not (= ?b ?dest))
+    )
+    :ordered-subtasks (and
+      (achieve-on ?b ?dest)
+    )
+  )
+
+  ; Tentative but domain-plausible root variant: when caller wants a table placement objective.
+  ; Included because the demonstrations include both stacking and table-placement behavior.
+  (:method m-root-arrange-as-table
+    :parameters (?b - block ?dest - block)
+    :task (root_arrange-block ?b ?dest)
+    :precondition (and
+      (= ?b ?dest)
+    )
+    :ordered-subtasks (and
+      (achieve-on-table ?b)
+    )
+  )
+
+  ; Strongly supported termination case: if already on target, no action needed.
+  (:method m-achieve-on-done
+    :parameters (?top - block ?bottom - block)
+    :task (achieve-on ?top ?bottom)
+    :precondition (and
+      (on ?top ?bottom)
+    )
+    :subtasks ()
+  )
+
+  ; Strongly supported by all stacking demos:
+  ; clear destination, access source, then unstack/pickup as needed, then stack.
+  (:method m-achieve-on-from-table
+    :parameters (?top - block ?bottom - block)
+    :task (achieve-on ?top ?bottom)
+    :precondition (and
+      (on-table ?top)
+      (not (= ?top ?bottom))
+    )
+    :ordered-subtasks (and
+      (clear-block ?bottom)
+      (Pickup ?top)
+      (Stack ?top ?bottom)
+    )
+  )
+
+  ; Strongly supported by demos where top block starts on another block and is moved elsewhere
+  ; (e.g., 1_3, 1_4, 1_5, 1_6, 1_7).
+  (:method m-achieve-on-from-stack
+    :parameters (?top - block ?bottom - block ?support - block)
+    :task (achieve-on ?top ?bottom)
+    :precondition (and
+      (on ?top ?support)
+      (not (= ?top ?bottom))
+      (not (= ?top ?support))
+    )
+    :ordered-subtasks (and
+      (clear-block ?top)
+      (clear-block ?bottom)
+      (Unstack ?top ?support)
+      (Stack ?top ?bottom)
+    )
+  )
+
+  ; Strongly supported termination case for table goals.
+  (:method m-achieve-on-table-done
+    :parameters (?b - block)
+    :task (achieve-on-table ?b)
+    :precondition (and
+      (on-table ?b)
+    )
+    :subtasks ()
+  )
+
+  ; Strongly supported by 1_6: move top block from another block to table.
+  (:method m-achieve-on-table-from-stack
+    :parameters (?b - block ?support - block)
+    :task (achieve-on-table ?b)
+    :precondition (and
+      (on ?b ?support)
+      (not (= ?b ?support))
+    )
+    :ordered-subtasks (and
+      (clear-block ?b)
+      (Unstack ?b ?support)
+      (Putdown ?b)
+    )
+  )
+
+  ; Tentative but natural domain generalisation: if a held block must end on the table, just put it down.
+  (:method m-achieve-on-table-from-holding
+    :parameters (?b - block)
+    :task (achieve-on-table ?b)
+    :precondition (and
+      (holding ?b)
+    )
+    :ordered-subtasks (and
+      (Putdown ?b)
+    )
+  )
+
+  ; Strongly supported base case: clear blocks need no decomposition.
+  (:method m-clear-block-done
+    :parameters (?b - block)
+    :task (clear-block ?b)
+    :precondition (and
+      (clear ?b)
+    )
+    :subtasks ()
+  )
+
+  ; Strongly supported by all demos with buried targets/destinations:
+  ; remove the unique block sitting on top of ?b, then recurse until ?b is clear.
+  (:method m-clear-block-recursive
+    :parameters (?b - block ?x - block)
+    :task (clear-block ?b)
+    :precondition (and
+      (on ?x ?b)
+      (not (= ?x ?b))
+    )
+    :ordered-subtasks (and
+      (move-block-away ?x)
+      (clear-block ?b)
+    )
+  )
+
+  ; Strongly supported by demos where an obstructing clear top block is simply put on the table.
+  ; This is a safe lifted parking strategy that generalises beyond specific stacks.
+  (:method m-move-block-away-from-stack
+    :parameters (?b - block ?support - block)
+    :task (move-block-away ?b)
+    :precondition (and
+      (on ?b ?support)
+      (clear ?b)
+      (hand-empty)
+      (not (= ?b ?support))
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?support)
+      (Putdown ?b)
+    )
+  )
+
+  ; Tentative but useful generalisation: if already holding the block we want to move away, park it on the table.
+  (:method m-move-block-away-from-holding
+    :parameters (?b - block)
+    :task (move-block-away ?b)
+    :precondition (and
+      (holding ?b)
+    )
+    :ordered-subtasks (and
+      (Putdown ?b)
+    )
+  )
+
+  ; Strongly supported base case: accessible means clear whether on table or atop another block.
+  (:method m-make-accessible-done
+    :parameters (?b - block)
+    :task (make-accessible ?b)
+    :precondition (and
+      (clear ?b)
+    )
+    :subtasks ()
+  )
+
+  ; Strongly supported recursive accessibility clearing.
+  (:method m-make-accessible-recursive
+    :parameters (?b - block ?x - block)
+    :task (make-accessible ?b)
+    :precondition (and
+      (on ?x ?b)
+      (not (= ?x ?b))
+    )
+    :ordered-subtasks (and
+      (move-block-away ?x)
+      (make-accessible ?b)
+    )
+  )
+
+  (:action Pickup
+    :parameters
+    (
+      ?b - block
+    )
+    :precondition
+    ( and
+      ( on-table ?b )
+      ( clear ?b )
+      ( hand-empty )
+    )
+    :effect
+    ( and
+      ( not ( on-table ?b ) )
+      ( not ( clear ?b ) )
+      ( not ( hand-empty ) )
+      ( holding ?b )
+    )
+  )
+
+  (:action Putdown
+    :parameters
+    (
+      ?b - block
+    )
+    :precondition
+    ( and
+      ( holding ?b )
+    )
+    :effect
+    ( and
+      ( not ( holding ?b ) )
+      ( hand-empty )
+      ( on-table ?b )
+      ( clear ?b )
+    )
+  )
+
+  (:action Unstack
+    :parameters
+    (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    ( and
+      ( on ?b1 ?b2 )
+      ( clear ?b1 )
+      ( hand-empty )
+    )
+    :effect
+    ( and
+      ( not ( on ?b1 ?b2 ) )
+      ( not ( clear ?b1 ) )
+      ( not ( hand-empty ) )
+      ( clear ?b2 )
+      ( holding ?b1 )
+    )
+  )
+
+  (:action Stack
+    :parameters
+    (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    ( and
+      ( holding ?b1 )
+      ( clear ?b2 )
+    )
+    :effect
+    ( and
+      ( not ( holding ?b1 ) )
+      ( not ( clear ?b2 ) )
+      ( hand-empty )
+      ( on ?b1 ?b2 )
+      ( clear ?b1 )
+    )
+  )
+)

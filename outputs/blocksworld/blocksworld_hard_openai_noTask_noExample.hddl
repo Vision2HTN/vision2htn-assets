@@ -1,0 +1,272 @@
+(define (domain Blocks4)
+
+  (:requirements :hierarchy :strips :typing :equality)
+
+  (:types block)
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  (:task root_relocate_block ; STRONG: directly supported by repeated observed top-level moves in both demos; generalises to relocating any clear/movable block onto another support or table
+    :parameters (?b - block ?dest - block)
+  )
+
+  (:task root_clear_and_restack ; PLAUSIBLE: demos repeatedly clear a top block and restack it elsewhere; useful lifted root for generic rearrangement subgoals
+    :parameters (?b - block ?dest - block)
+  )
+
+  (:task move_block ; STRONG: observed many times as the recurring abstract pattern "pick a block from current support and place on new support"; lifted over all blocks/supports
+    :parameters (?b - block ?dest - block)
+  )
+
+  (:task free_block ; STRONG: motivated by observed necessity that only clear top blocks were moved; general task captures making a designated block clear before moving/using it
+    :parameters (?b - block)
+  )
+
+  (:task put_on_block ; STRONG: observed placements onto another block (e.g., H on D, G on C, B on G, F on H, etc.); general placement objective
+    :parameters (?b - block ?dest - block)
+  )
+
+  (:task put_on_table ; STRONG: observed placements onto empty stack positions/table (e.g., D, C, and others temporarily placed on table); generalises to parking a block
+    :parameters (?b - block)
+  )
+
+  (:method root_relocate_via_stack ; STRONG: many observed root-level outcomes are relocations onto another block; general root wrapper
+    :parameters (?b - block ?dest - block)
+    :task (root_relocate_block ?b ?dest)
+    :precondition (and
+      (not (= ?b ?dest))
+    )
+    :ordered-subtasks (and
+      (move_block ?b ?dest)
+    )
+  )
+
+  (:method root_clear_and_restack_direct ; PLAUSIBLE: captures general problem-solving pattern of first ensuring movability then relocating; demos show only already-clear top blocks but abstraction is standard and broad
+    :parameters (?b - block ?dest - block)
+    :task (root_clear_and_restack ?b ?dest)
+    :precondition (and
+      (not (= ?b ?dest))
+    )
+    :ordered-subtasks (and
+      (free_block ?b)
+      (move_block ?b ?dest)
+    )
+  )
+
+  (:method move_block_from_table_to_block ; STRONG: supported by observed moves of tabled blocks onto stacks, e.g. H onto D, E onto A, etc.; general for any clear table block
+    :parameters (?b - block ?dest - block)
+    :task (move_block ?b ?dest)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (clear ?dest)
+      (not (= ?b ?dest))
+    )
+    :ordered-subtasks (and
+      (Pickup ?b)
+      (Stack ?b ?dest)
+    )
+  )
+
+  (:method move_block_from_block_to_block ; STRONG: supported by many observed unstack-and-restack steps, e.g. D from C to table then later H/F/B onto blocks; general relocation between stacks
+    :parameters (?b - block ?src - block ?dest - block)
+    :task (move_block ?b ?dest)
+    :precondition (and
+      (on ?b ?src)
+      (clear ?b)
+      (clear ?dest)
+      (not (= ?b ?src))
+      (not (= ?b ?dest))
+      (not (= ?src ?dest))
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?src)
+      (Stack ?b ?dest)
+    )
+  )
+
+  (:method move_block_from_block_to_table_then_to_block ; PLAUSIBLE: demos often used temporary table placements before later stacking; this method captures a useful lifted two-stage relocation strategy
+    :parameters (?b - block ?src - block ?dest - block)
+    :task (move_block ?b ?dest)
+    :precondition (and
+      (on ?b ?src)
+      (clear ?b)
+      (clear ?dest)
+      (not (= ?b ?src))
+      (not (= ?b ?dest))
+      (not (= ?src ?dest))
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?src)
+      (Putdown ?b)
+      (Pickup ?b)
+      (Stack ?b ?dest)
+    )
+  )
+
+  (:method free_block_already_clear ; STRONG: every moved block in demonstrations was already clear when manipulated; valid base case for recursive clearing task
+    :parameters (?b - block)
+    :task (free_block ?b)
+    :precondition (and
+      (clear ?b)
+    )
+    :ordered-subtasks (and)
+  )
+
+  (:method free_block_by_moving_top_to_table ; PLAUSIBLE: standard recursive blocksworld HTN decomposition; needed to clear buried blocks in unseen instances, though not explicitly required by sampled top-only moves
+    :parameters (?b - block ?x - block)
+    :task (free_block ?b)
+    :precondition (and
+      (on ?x ?b)
+      (clear ?x)
+      (not (= ?x ?b))
+    )
+    :ordered-subtasks (and
+      (put_on_table ?x)
+      (free_block ?b)
+    )
+  )
+
+  (:method put_on_block_from_table ; STRONG: observed whenever a temporarily tabled block was later stacked on another block; generalises across all such placements
+    :parameters (?b - block ?dest - block)
+    :task (put_on_block ?b ?dest)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (clear ?dest)
+      (not (= ?b ?dest))
+    )
+    :ordered-subtasks (and
+      (Pickup ?b)
+      (Stack ?b ?dest)
+    )
+  )
+
+  (:method put_on_block_from_block ; STRONG: observed for direct transfers from one stack to another support whenever source top was clear; broad lifted move schema
+    :parameters (?b - block ?src - block ?dest - block)
+    :task (put_on_block ?b ?dest)
+    :precondition (and
+      (on ?b ?src)
+      (clear ?b)
+      (clear ?dest)
+      (not (= ?b ?src))
+      (not (= ?b ?dest))
+      (not (= ?src ?dest))
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?src)
+      (Stack ?b ?dest)
+    )
+  )
+
+  (:method put_on_table_from_block ; STRONG: directly supported by observed temporary parking moves to empty stacks/table, e.g. D and C moved off their original supports
+    :parameters (?b - block ?src - block)
+    :task (put_on_table ?b)
+    :precondition (and
+      (on ?b ?src)
+      (clear ?b)
+      (not (= ?b ?src))
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?src)
+      (Putdown ?b)
+    )
+  )
+
+  (:method put_on_table_already ; STRONG: useful no-op base case; a block may already satisfy the parking objective in many instances beyond the demonstrations
+    :parameters (?b - block)
+    :task (put_on_table ?b)
+    :precondition (and
+      (on-table ?b)
+    )
+    :ordered-subtasks (and)
+  )
+
+  (:action Pickup
+    :parameters
+    (
+      ?b - block
+    )
+    :precondition
+    ( and
+      ( on-table ?b )
+      ( clear ?b )
+      ( hand-empty )
+    )
+    :effect
+    ( and
+      ( not ( on-table ?b ) )
+      ( not ( clear ?b ) )
+      ( not ( hand-empty ) )
+      ( holding ?b )
+    )
+  )
+
+  (:action Putdown
+    :parameters
+    (
+      ?b - block
+    )
+    :precondition
+    ( and
+      ( holding ?b )
+    )
+    :effect
+    ( and
+      ( not ( holding ?b ) )
+      ( hand-empty )
+      ( on-table ?b )
+      ( clear ?b )
+    )
+  )
+
+  (:action Unstack
+    :parameters
+    (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    ( and
+      ( on ?b1 ?b2 )
+      ( clear ?b1 )
+      ( hand-empty )
+    )
+    :effect
+    ( and
+      ( not ( on ?b1 ?b2 ) )
+      ( not ( clear ?b1 ) )
+      ( not ( hand-empty ) )
+      ( clear ?b2 )
+      ( holding ?b1 )
+    )
+  )
+
+  (:action Stack
+    :parameters
+    (
+      ?b1 - block
+      ?b2 - block
+    )
+    :precondition
+    ( and
+      ( holding ?b1 )
+      ( clear ?b2 )
+    )
+    :effect
+    ( and
+      ( not ( holding ?b1 ) )
+      ( not ( clear ?b2 ) )
+      ( hand-empty )
+      ( on ?b1 ?b2 )
+      ( clear ?b1 )
+    )
+  )
+
+)

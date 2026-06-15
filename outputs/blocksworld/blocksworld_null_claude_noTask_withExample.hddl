@@ -1,0 +1,341 @@
+(define (domain Blocks4)
+
+  (:requirements :hierarchy :strips :typing :equality)
+
+  (:types block)
+
+  (:predicates
+    (on-table ?b - block)
+    (on ?b1 - block ?b2 - block)
+    (clear ?b - block)
+    (hand-empty)
+    (holding ?b - block)
+  )
+
+  ; ROOT TASK: build a tower with ?top on ?bottom (generalises all demos where one block ends above another)
+  (:task stack-on
+    :parameters (?top - block ?bottom - block)
+  )
+
+  ; ROOT TASK: place a block onto the table (generalises putdown steps seen across all demos)
+  (:task put-on-table
+    :parameters (?b - block)
+  )
+
+  ; ROOT TASK: build a three-block tower with ?top on ?mid on ?bot
+  ; strongly supported by 1_2, 1_3, 1_4, 1_5 which all end with three blocks stacked
+  (:task build-tower-3
+    :parameters (?top - block ?mid - block ?bot - block)
+  )
+
+  ; ROOT TASK: build a four-block tower (tentative - generalises 1_6, 1_7 which show 4 blocks)
+  (:task build-tower-4
+    :parameters (?top - block ?upper - block ?mid - block ?bot - block)
+  )
+
+  ; Intermediate task: ensure ?b is clear by moving whatever is on top of it
+  (:task make-clear
+    :parameters (?b - block)
+  )
+
+  ; Intermediate task: ensure ?b is held (pick it up from wherever it is)
+  (:task pick-up-block
+    :parameters (?b - block)
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for pick-up-block
+  ; -----------------------------------------------------------------------
+
+  ; ?b is on the table and already clear - just pick it up
+  ; Motivated by: initial pickup steps in every demo
+  (:method pick-up-from-table
+    :parameters (?b - block)
+    :task (pick-up-block ?b)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Pickup ?b)
+    )
+  )
+
+  ; ?b is on top of another block and clear - unstack it
+  ; Motivated by: Unstack steps visible in 1_2 (B removed from stack), 1_3, 1_4, 1_7
+  (:method pick-up-from-block
+    :parameters (?b - block ?below - block)
+    :task (pick-up-block ?b)
+    :precondition (and
+      (on ?b ?below)
+      (clear ?b)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Unstack ?b ?below)
+    )
+  )
+
+  ; ?b is on the table but NOT clear - first clear it, then pick it up
+  ; Motivated by: cases where target block has another block on it (1_3: A under B)
+  (:method pick-up-from-table-blocked
+    :parameters (?b - block)
+    :task (pick-up-block ?b)
+    :precondition (and
+      (on-table ?b)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (make-clear ?b)
+      (Pickup ?b)
+    )
+  )
+
+  ; ?b is on another block but NOT clear - clear it first, then unstack
+  ; Tentative generalisation for deeper stacks
+  (:method pick-up-from-block-blocked
+    :parameters (?b - block ?below - block)
+    :task (pick-up-block ?b)
+    :precondition (and
+      (on ?b ?below)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (make-clear ?b)
+      (Unstack ?b ?below)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for make-clear
+  ; -----------------------------------------------------------------------
+
+  ; ?b is already clear - nothing to do
+  ; Motivated by: many steps where target is already clear
+  (:method already-clear
+    :parameters (?b - block)
+    :task (make-clear ?b)
+    :precondition (and
+      (clear ?b)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; ?blocker is on ?b - move ?blocker to the table to clear ?b
+  ; Motivated by: 1_2 B moved off stack to clear A; 1_3 B unstacked; 1_4 C unstacked
+  (:method clear-by-putting-blocker-on-table
+    :parameters (?b - block ?blocker - block)
+    :task (make-clear ?b)
+    :precondition (and
+      (on ?blocker ?b)
+      (clear ?blocker)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (Unstack ?blocker ?b)
+      (Putdown ?blocker)
+    )
+  )
+
+  ; ?blocker is on ?b but ?blocker itself is not clear - recursively clear ?blocker first
+  ; Tentative: needed for stacks taller than 2
+  (:method clear-by-clearing-blocker-first
+    :parameters (?b - block ?blocker - block)
+    :task (make-clear ?b)
+    :precondition (and
+      (on ?blocker ?b)
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (make-clear ?blocker)
+      (Unstack ?blocker ?b)
+      (Putdown ?blocker)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for put-on-table
+  ; -----------------------------------------------------------------------
+
+  ; Block is already on the table and clear - nothing to do
+  (:method already-on-table
+    :parameters (?b - block)
+    :task (put-on-table ?b)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; Block needs to be picked up (from anywhere) and put on table
+  ; Motivated by: intermediate putdown actions in every demo
+  (:method move-to-table
+    :parameters (?b - block)
+    :task (put-on-table ?b)
+    :precondition (and
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (pick-up-block ?b)
+      (Putdown ?b)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for stack-on  (?top placed directly onto ?bottom)
+  ; -----------------------------------------------------------------------
+
+  ; ?top is already correctly placed on ?bottom
+  ; Base case observed in final frames of every demo
+  (:method stack-on-done
+    :parameters (?top - block ?bottom - block)
+    :task (stack-on ?top ?bottom)
+    :precondition (and
+      (on ?top ?bottom)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; Pick up ?top (clearing it if necessary) then stack it on ?bottom (clearing ?bottom if necessary)
+  ; Strongly motivated by Stack actions in all demos
+  (:method do-stack-on
+    :parameters (?top - block ?bottom - block)
+    :task (stack-on ?top ?bottom)
+    :precondition (and
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (make-clear ?bottom)
+      (pick-up-block ?top)
+      (Stack ?top ?bottom)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for build-tower-3  (goal: ?top on ?mid on ?bot)
+  ; -----------------------------------------------------------------------
+
+  ; Already complete
+  (:method tower-3-done
+    :parameters (?top - block ?mid - block ?bot - block)
+    :task (build-tower-3 ?top ?mid ?bot)
+    :precondition (and
+      (on ?top ?mid)
+      (on ?mid ?bot)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; General strategy: first build ?mid on ?bot, then stack ?top on ?mid
+  ; Strongly supported by 1_2 (C->B->A), 1_3 (A->B->C), 1_4 (A->B->C), 1_5 (C->A->B)
+  (:method build-tower-3-bottom-up
+    :parameters (?top - block ?mid - block ?bot - block)
+    :task (build-tower-3 ?top ?mid ?bot)
+    :precondition (and
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (put-on-table ?bot)
+      (stack-on ?mid ?bot)
+      (stack-on ?top ?mid)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; METHODS for build-tower-4  (goal: ?top on ?upper on ?mid on ?bot)
+  ; -----------------------------------------------------------------------
+
+  ; Already complete
+  (:method tower-4-done
+    :parameters (?top - block ?upper - block ?mid - block ?bot - block)
+    :task (build-tower-4 ?top ?upper ?mid ?bot)
+    :precondition (and
+      (on ?top ?upper)
+      (on ?upper ?mid)
+      (on ?mid ?bot)
+    )
+    :ordered-subtasks (and)
+  )
+
+  ; General bottom-up strategy for a 4-block tower
+  ; Tentative: strongly suggested by 1_6 and 1_7 which show 4-block stacks
+  (:method build-tower-4-bottom-up
+    :parameters (?top - block ?upper - block ?mid - block ?bot - block)
+    :task (build-tower-4 ?top ?upper ?mid ?bot)
+    :precondition (and
+      (hand-empty)
+    )
+    :ordered-subtasks (and
+      (put-on-table ?bot)
+      (stack-on ?mid ?bot)
+      (stack-on ?upper ?mid)
+      (stack-on ?top ?upper)
+    )
+  )
+
+  ; -----------------------------------------------------------------------
+  ; ACTIONS (copied verbatim from PDDL domain)
+  ; -----------------------------------------------------------------------
+
+  (:action Pickup
+    :parameters (?b - block)
+    :precondition (and
+      (on-table ?b)
+      (clear ?b)
+      (hand-empty)
+    )
+    :effect (and
+      (not (on-table ?b))
+      (not (clear ?b))
+      (not (hand-empty))
+      (holding ?b)
+    )
+  )
+
+  (:action Putdown
+    :parameters (?b - block)
+    :precondition (and
+      (holding ?b)
+    )
+    :effect (and
+      (not (holding ?b))
+      (hand-empty)
+      (on-table ?b)
+      (clear ?b)
+    )
+  )
+
+  (:action Unstack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and
+      (on ?b1 ?b2)
+      (clear ?b1)
+      (hand-empty)
+    )
+    :effect (and
+      (not (on ?b1 ?b2))
+      (not (clear ?b1))
+      (not (hand-empty))
+      (clear ?b2)
+      (holding ?b1)
+    )
+  )
+
+  (:action Stack
+    :parameters (?b1 - block ?b2 - block)
+    :precondition (and
+      (holding ?b1)
+      (clear ?b2)
+    )
+    :effect (and
+      (not (holding ?b1))
+      (not (clear ?b2))
+      (hand-empty)
+      (on ?b1 ?b2)
+      (clear ?b1)
+    )
+  )
+
+)
